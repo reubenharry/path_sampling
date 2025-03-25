@@ -32,8 +32,8 @@ def E_J(paths, obs):
     # return -J(paths) # todo: what is J in 7??
 
 def h(b, x):
-    dbds = jax.grad(b)(x)
-    (b(x) - dxdt). dot(dbds) + 0.5*dbds
+    # dbds = jax.grad(b)(x)
+    # (b(x) - dxdt). dot(dbds) + 0.5*dbds
     pass
 
 def loss(path):
@@ -50,14 +50,14 @@ def change_s(b_0, s):
         )(jax.random.split(jax.random.key(0), batch_size))
     
     e_j = E_J(paths, None)
-    e_h = None
-
-    minimize = lambda s: e_j + e_h 
 
 
-    dbds = find_dbds(s, b)
-    return b + dbds
 
+
+    # dbds = find_dbds(s, b)
+    # return b + dbds
+
+    pass 
 
 
 # double well potential
