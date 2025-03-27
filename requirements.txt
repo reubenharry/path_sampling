@@ -1,5 +1,7 @@
 jax
 jaxlib
+equinox
+optax
 numpy
 scipy
 matplotlib
