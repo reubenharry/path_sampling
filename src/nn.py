@@ -46,12 +46,12 @@ def make_train_step(optimizer, loss):
         return model, opt_state, loss_value
     return train_step
 
-def train(loss,model, optimizer, num_steps, x, t, y):
+def train(loss,model, optimizer, num_training_steps, x, t, y):
 
     train_step = make_train_step(optimizer, loss)
     opt_state = optimizer.init(model)
 
-    for _ in range(num_steps):
+    for _ in range(num_training_steps):
 
         model, opt_state, loss_value = train_step(model, opt_state, x, t, y)
         jax.debug.print("loss_value {x}",x=loss_value)

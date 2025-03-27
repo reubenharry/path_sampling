@@ -10,7 +10,6 @@ import os
 os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=" + str(batch_size)
 
 ndims = 1
-num_steps = 100
 
 def sample_sde(b, W, rho, dt, num_steps, key):
 
@@ -29,7 +28,7 @@ def sample_sde(b, W, rho, dt, num_steps, key):
 
 
 def J(x,y):
-    return (x[-1, :] > 0).astype(jnp.float32)
+    return (x[-1, :] > 2.).astype(jnp.float32)
 
 def E_J(paths, obs):
     return jnp.mean(J(paths, obs),axis=1)
@@ -72,7 +71,7 @@ def make_h(b, dbds):
 
     return h
 
-def make_h_loss(expectation_of_J, expectation_of_h, b):
+def make_h_loss(expectation_of_J, b):
     
     def h_loss(dbds, xs, times, ys):
 
@@ -80,12 +79,16 @@ def make_h_loss(expectation_of_J, expectation_of_h, b):
         # print(make_h(b,dbds)(xs[0], times[0]))
         # return 1.0
 
+        h = make_h(b, dbds)
 
-        return jnp.mean(jax.vmap(lambda x,y, t: (-J(x, y)+expectation_of_J - make_h(b, dbds)(x,t) + expectation_of_h)**2)(xs, ys, times))
+        expectation_of_h = jnp.mean(jax.vmap(h)(xs, times), axis=0)
+
+
+        return jnp.mean(jax.vmap(lambda x,y, t: (-J(x, y)+expectation_of_J - h(x,t) + expectation_of_h)**2)(xs, ys, times))
 
     return h_loss        
 
-def find_dbds(model_key, expectation_of_J, expectation_of_h, b, xs, times, ys, num_steps):
+def find_dbds(model_key, expectation_of_J, b, xs, times, ys, num_training_steps):
 
     model_key, data_key = jax.random.split(model_key)
 
@@ -94,9 +97,9 @@ def find_dbds(model_key, expectation_of_J, expectation_of_h, b, xs, times, ys, n
     learning_rate = 1e-3
     optimizer = optax.adam(learning_rate)
 
-    h_loss = make_h_loss(expectation_of_J, expectation_of_h, b)
+    h_loss = make_h_loss(expectation_of_J, b)
 
-    dbds = train(h_loss, dbds, optimizer, num_steps, xs, times, ys)
+    dbds = train(h_loss, dbds, optimizer, num_training_steps, xs, times, ys)
 
     return dbds
 
@@ -106,7 +109,7 @@ def update(b, hyperparams, key):
 
     optimizer = optax.adam(1e-3)
     # Obtain the `opt_state` that contains statistics for the optimizer.
-    params = {'w': jax.random.normal(key=init_key, shape=(num_steps,ndims))}
+    params = {'w': jax.random.normal(key=init_key, shape=(hyperparams['num_steps'],ndims))}
     opt_state = optimizer.init(params)
 
     xs, times = jax.pmap(lambda key:sample_sde(
@@ -118,6 +121,16 @@ def update(b, hyperparams, key):
     num_steps=hyperparams['num_steps']))(jax.random.split(jax.random.key(0), batch_size))
 
 
+    x = np.linspace(-5, 5, 100)
+    y = (x**4 - 8 * x**2)
+    plt.ylim(-10,10)
+    plt.plot(x, y)
+
+    # time = np.arange(num_steps)*dt
+    # plt.scatter(path, time )
+    plt.hist(xs[0], bins=100, density=True)
+    plt.savefig('potential_new.png')
+
 
 
     # print("time", times.shape)
@@ -126,46 +139,49 @@ def update(b, hyperparams, key):
     ys = (xs > 0).astype(jnp.float32)
 
     expectation_of_J = E_J(xs, ys).mean(axis=0)
-    dbds = MLP([2,20,20,1], key=model_key)
+    # dbds = MLP([2,20,20,1], key=model_key)
 
     # print("input to thing", xs[0].shape, times[0].shape)
     # print(make_h(b, dbds)(xs[0], times[0]))
-    h = make_h(b, dbds)
-    expectation_of_h = jnp.mean(jax.vmap(h)(xs, times), axis=0)
-    print(expectation_of_h.shape)
-    print(expectation_of_J.shape)
+    # h = make_h(b, dbds)
+    
+    # print(expectation_of_J.shape)
     
 
 
-    print(b(xs[0][0],0.0))
-    print(dbds(jnp.expand_dims(xs[0][0],0), 0.0))
+    # print(b(xs[0][0],0.0))
+    # print(dbds(jnp.expand_dims(xs[0][0],0), 0.0))
 
 
     
     
 
 
-    print(make_h_loss(expectation_of_J, expectation_of_h, b)(
-        dbds, 
-        xs, 
-        times,
-        ys,
-        ))
+    # print(make_h_loss(expectation_of_J, b)(
+    #     dbds, 
+    #     xs, 
+    #     times,
+    #     ys,
+    #     ))
     
 
     dbds = find_dbds(
         model_key,
         expectation_of_J,
-        expectation_of_h,
         b,
         xs,
         times,
         ys,
-        num_steps=hyperparams['num_steps']
+        num_training_steps=hyperparams['num_training_steps']
         )
-    raise Exception
     
-    print("dbds", dbds)
+    print(dbds(xs[:, 0, :],0.1))
+    print(dbds(xs[:, 0, :],0.01))
+
+    ## TODO: you need to pass in the algorithmic time!!! or not?
+    # raise Exception
+    
+    # print("dbds", dbds)
 
     
     
@@ -184,7 +200,7 @@ def update(b, hyperparams, key):
     #     print(params)
     #     params = optax.apply_updates(params, updates)
 
-    return lambda x: b(x) + dbds(x)
+    return lambda x, t: b(x,t) + dbds(jnp.expand_dims(x, 0),t)[0]
  
 
 
@@ -209,12 +225,20 @@ potential = lambda x: (x**4 - 8 * x**2)[0]
 
 # print(path.shape)
 
-b = update(b=lambda x, t: -jax.grad(potential)(x),
-       hyperparams={'dt': 0.01, 'num_steps': 1000},
-       key=jax.random.key(0)
-)
+schedule = [0.0, 0.1]
 
-print(b(jnp.ones(1,)))
+b = lambda x, t: -jax.grad(potential)(x)
+key = jax.random.key(0)
+for i, _ in enumerate(schedule):
+
+    key = jax.random.fold_in(key, i)
+
+    b = update(b=b,
+        hyperparams={'dt': 0.01, 'num_steps': 1000, 'num_training_steps' : 1000},
+        key=key
+    )
+    print("NEXT ITER")
+
 
 raise Exception
 
