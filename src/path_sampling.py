@@ -5,10 +5,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import optax 
 
-batch_size = 8
+# number of paths sampled in one run of calculating dbds. We could handle with parallelization (pmap)
+batch_size = 1000
 import os
 os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=" + str(batch_size)
 
+# currently I'm just doing an SDE on \mathbb{R}
 ndims = 1
 
 def sample_sde(b, W, rho, dt, num_steps, key):
@@ -27,57 +29,43 @@ def sample_sde(b, W, rho, dt, num_steps, key):
     return jax.lax.scan(body, (X_0, 0), keys)[1]
 
 
+# currently set for TPS
 def J(x,y):
-    return (x[-1, :] > 2.).astype(jnp.float32)
+    return (x[-1, :] > 0.).astype(jnp.float32)
 
 def E_J(paths, obs):
-    return jnp.mean(J(paths, obs),axis=1)
-    # return -J(paths) # todo: what is J in 7??
+    return jnp.mean(jax.vmap(J)(paths, obs),axis=0)
 
 def make_h(b, dbds):
 
     @jax.jit
     def h(x, time):
-        # shapes
         # x: [steps, ndims]
         # time: [steps]
 
-        # print(x.shape, time.shape, "x, time")
-
         dt = time[0]
-        # print(dt, "dt")
-
-        # dxdt = x[1:, :] - x[:-1, :]
+        # TODO: consider whether this treatment of the gradient is correct
         dxdts = jnp.concatenate([jnp.zeros((1, x.shape[1])) , x[1:, :] - x[:-1, :]], axis=0)
-        # print("xdot shape", dxdts.shape)
 
-        # calculate divergence of dbds
-        div_dbdss = jax.vmap(lambda x, t: jnp.trace(jax.jacobian(lambda x: b(x,t))(x)))(x, time)
-        # print(div_dbdss.shape)
+        # calculate divergence of dbds at all times, using the trace of the jacobian
+        div_dbdss = jax.vmap(lambda xt, t: jnp.trace(jax.jacobian(lambda k: dbds(jnp.expand_dims(k,0),t)[0])(xt)))(x, time)
 
+        # the discretized integral
         out = jax.vmap(lambda x, t, dxdt, div_dbds: 
                     
-                    -0.5*dt*((b(x,t) - dxdt).dot(dbds(jnp.expand_dims(x,0),jnp.expand_dims(t,0))[0]) + 0.5*div_dbds)
+                    -0.5*dt*((b(x,t) - dxdt).dot(dbds(jnp.expand_dims(x,0),t)[0]) + 0.5*div_dbds)
                     )(x,time, dxdts, div_dbdss)
-        return jnp.sum(out) 
-        # raise Exception
         
-        return -0.5*dt*jnp.sum(jnp.array([(b(t,x) - dxdt).dot(dbds(t, x[t]) + 0.5*div_dbds) for t in range(num_steps)]))
+        return jnp.sum(out) 
 
-
-        # dbds = jax.grad(b)(x)
-        # (b(x) - dxdt). dot(dbds) + 0.5*dbds
-        pass
 
     return h
 
+# compute the loss function, which here is the square of the difference between the left and right of (7)
 def make_h_loss(expectation_of_J, b):
     
     def h_loss(dbds, xs, times, ys):
 
-        # jax.debug.print("xs {x}", x=(xs[0].shape, times[0].shape))
-        # print(make_h(b,dbds)(xs[0], times[0]))
-        # return 1.0
 
         h = make_h(b, dbds)
 
@@ -88,9 +76,8 @@ def make_h_loss(expectation_of_J, b):
 
     return h_loss        
 
+# parametrize dbds by a neural net, and minimize h_loss
 def find_dbds(model_key, expectation_of_J, b, xs, times, ys, num_training_steps):
-
-    model_key, data_key = jax.random.split(model_key)
 
     # initialize model
     dbds = MLP([2,20,20,1], key=model_key)
@@ -103,14 +90,12 @@ def find_dbds(model_key, expectation_of_J, b, xs, times, ys, num_training_steps)
 
     return dbds
 
+# b \mapsto b + dbds
 def update(b, hyperparams, key):
 
-    model_key, init_key = jax.random.split(key)
+    # b : [ndims] -> [1]
 
-    optimizer = optax.adam(1e-3)
-    # Obtain the `opt_state` that contains statistics for the optimizer.
-    params = {'w': jax.random.normal(key=init_key, shape=(hyperparams['num_steps'],ndims))}
-    opt_state = optimizer.init(params)
+    path_key, model_key = jax.random.split(key)
 
     xs, times = jax.pmap(lambda key:sample_sde(
     b=b, 
@@ -118,13 +103,16 @@ def update(b, hyperparams, key):
     rho = lambda key: jnp.ones((ndims,))-2.,
     key=key, 
     dt=hyperparams['dt'], 
-    num_steps=hyperparams['num_steps']))(jax.random.split(jax.random.key(0), batch_size))
+    num_steps=hyperparams['num_steps']))(jax.random.split(path_key, batch_size))
 
 
-    x = np.linspace(-5, 5, 100)
+    x = jnp.expand_dims(jnp.linspace(-5, 5, 100), 1)
     y = (x**4 - 8 * x**2)
-    plt.ylim(-10,10)
+    # y2 = jax.grad(lambda x: jnp.sum(x**4 - 8 * x**2))(x)
+    y2 = jax.vmap(lambda k: b(k, 0.1))(x)
+    plt.ylim(-15,15)
     plt.plot(x, y)
+    plt.plot(x,y2)
 
     # time = np.arange(num_steps)*dt
     # plt.scatter(path, time )
@@ -138,17 +126,13 @@ def update(b, hyperparams, key):
     
     ys = (xs > 0).astype(jnp.float32)
 
-    expectation_of_J = E_J(xs, ys).mean(axis=0)
-    # dbds = MLP([2,20,20,1], key=model_key)
+    expectation_of_J = E_J(xs, ys) # .mean(axis=0)
 
+    # dbds = MLP([2,20,20,1], key=model_key)
     # print("input to thing", xs[0].shape, times[0].shape)
     # print(make_h(b, dbds)(xs[0], times[0]))
     # h = make_h(b, dbds)
-    
     # print(expectation_of_J.shape)
-    
-
-
     # print(b(xs[0][0],0.0))
     # print(dbds(jnp.expand_dims(xs[0][0],0), 0.0))
 
@@ -175,108 +159,109 @@ def update(b, hyperparams, key):
         num_training_steps=hyperparams['num_training_steps']
         )
     
-    print(dbds(xs[:, 0, :],0.1))
-    print(dbds(xs[:, 0, :],0.01))
+
+    test_xs, test_times = jax.pmap(lambda key:sample_sde(
+        b=b, 
+        W = lambda _, key: jnp.sqrt(2)*jax.random.normal(key, shape=(ndims,)),
+        rho = lambda key: jnp.ones((ndims,))-2.,
+        key=key, 
+        dt=hyperparams['dt'], 
+        num_steps=hyperparams['num_steps']))(jax.random.split(jax.random.key(500), batch_size))
+
+    test_ys = (xs > 0).astype(jnp.float32)
+
+
+    print(make_h_loss(expectation_of_J=expectation_of_J, b=b)(
+        dbds,
+        test_xs,
+        test_times,
+        test_ys
+    ), "LOSS\n")
 
     ## TODO: you need to pass in the algorithmic time!!! or not?
-    # raise Exception
     
-    # print("dbds", dbds)
+    new_b =  lambda x, t: (b(x,t) + dbds(jnp.expand_dims(x, 0),t)[0])
+    # new_b =  lambda x, t: (dbds(jnp.expand_dims(x, 0)[0],t))
 
-    
-    
+    # print(b(xs[0, 0, :],0.1).shape)
+    # print(new_b(xs[0, 0, :],0.1).shape)
+    # print(jax.grad(lambda x: jnp.sum(x**4 - 8 * x**2,axis=0))(xs[0, 0, :]).shape)
+    # print(dbds(jnp.expand_dims(xs[0, 0, :],0),0.1)[0].shape)
 
+    # new_b(xs[:, 0, :],0.1)
 
+    return new_b
 
-
-
-    # for i in range(2):
-
-    #     # loss = lambda params: jnp.sum(params['w'])
-
-    #     grads = jax.grad(loss)(params, b=b_tabulated, xs=x, ys=y)
-    #     # print(grads)
-    #     updates, opt_state = optimizer.update(grads, opt_state)
-    #     print(params)
-    #     params = optax.apply_updates(params, updates)
-
-    return lambda x, t: b(x,t) + dbds(jnp.expand_dims(x, 0),t)[0]
- 
-
-
-
-    # paths = jax.pmap(lambda key: sample_sde(
-    #     b=lambda x: -jax.grad(potential)(x), 
-    #     W = lambda _, key: jnp.sqrt(2)*jax.random.normal(key),
-    #     rho = lambda key: jax.random.normal(key),
-    #     key=key,
-    #     )(dt, 1000)
-    #     )(jax.random.split(jax.random.key(0), batch_size))
-    
-    # minimize loss
-
-potential = lambda x: (x**4 - 8 * x**2)[0]
-# path  = sample_sde(
-#     b=lambda x: -jax.grad(potential)(x), 
-#     W = lambda _, key: jnp.sqrt(2)*jax.random.normal(key, shape=(1,)),
-#     rho = lambda key: jnp.ones((1,))-2.,
-#     key=jax.random.key(0)
-#     )(0.01, num_steps)
-
-# print(path.shape)
+   
+potential = lambda x: jnp.sum(x**4 - 8 * x**2,axis=0)
 
 schedule = [0.0, 0.1]
 
-b = lambda x, t: -jax.grad(potential)(x)
+
+def b(x, t): 
+    assert x.shape[0] == ndims
+    return -jax.grad(potential)(x)
+
+
 key = jax.random.key(0)
 for i, _ in enumerate(schedule):
+
+
 
     key = jax.random.fold_in(key, i)
 
     b = update(b=b,
-        hyperparams={'dt': 0.01, 'num_steps': 1000, 'num_training_steps' : 1000},
+        hyperparams={'dt': 0.01, 'num_steps': 50, 'num_training_steps' : 1000},
         key=key
     )
     print("NEXT ITER")
 
 
-raise Exception
 
 
 
-    # dbds = find_dbds(s, b)
 
 
 
-# double well potential
-potential = lambda x: (x**4 - 8 * x**2)[0]
 
-# plot potential
-dt = 0.01
-path  = sample_sde(
-    b=lambda x: -jax.grad(potential)(x), 
-    W = lambda _, key: jnp.sqrt(2)*jax.random.normal(key, shape=(1,)),
-    rho = lambda key: -2.,
-    key=jax.random.key(0)
-    )(dt, num_steps)
 
-# paths = jax.pmap(lambda key: sample_sde(
+
+
+
+
+#     # dbds = find_dbds(s, b)
+
+
+
+# # double well potential
+# potential = lambda x: (x**4 - 8 * x**2)[0]
+
+# # plot potential
+# dt = 0.01
+# path  = sample_sde(
 #     b=lambda x: -jax.grad(potential)(x), 
-#     W = lambda _, key: jnp.sqrt(2)*jax.random.normal(key),
-#     rho = lambda key: jax.random.normal(key),
-#     key=key,
-#     )(dt, 1000)
-#     )(jax.random.split(jax.random.key(0), batch_size))
+#     W = lambda _, key: jnp.sqrt(2)*jax.random.normal(key, shape=(1,)),
+#     rho = lambda key: -2.,
+#     key=jax.random.key(0)
+#     )(dt, num_steps)
+
+# # paths = jax.pmap(lambda key: sample_sde(
+# #     b=lambda x: -jax.grad(potential)(x), 
+# #     W = lambda _, key: jnp.sqrt(2)*jax.random.normal(key),
+# #     rho = lambda key: jax.random.normal(key),
+# #     key=key,
+# #     )(dt, 1000)
+# #     )(jax.random.split(jax.random.key(0), batch_size))
 
 
-# print(E_J(paths, None))
+# # print(E_J(paths, None))
 
-x = np.linspace(-5, 5, 100)
-y = potential(x)
-plt.ylim(-10,10)
-plt.plot(x, y)
+# x = np.linspace(-5, 5, 100)
+# y = potential(x)
+# plt.ylim(-10,10)
+# plt.plot(x, y)
 
-time = np.arange(num_steps)*dt
-# plt.scatter(path, time )
-plt.hist(path, bins=30, density=True)
-plt.savefig('potential.png')
+# time = np.arange(num_steps)*dt
+# # plt.scatter(path, time )
+# plt.hist(path, bins=30, density=True)
+# plt.savefig('potential.png')
