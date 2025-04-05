@@ -21,10 +21,10 @@ class MLP(eqx.Module):
         
         # Apply each layer; use ReLU activations for hidden layers.
         for layer in self.layers[:-1]:
-            x = jax.vmap(layer)(x)
+            x = (layer)(x)
             x = jax.nn.relu(x)
         # Final layer (no activation).
-        x = jax.vmap(self.layers[-1])(x)
+        x = (self.layers[-1])(x)
         return x
 
 # Define the mean squared error loss function.
@@ -54,8 +54,8 @@ def train(loss,model, optimizer, num_training_steps, x, t, y):
     for _ in range(num_training_steps):
 
         model, opt_state, loss_value = train_step(model, opt_state, x, t, y)
-        jax.debug.print("loss_value {x}",x=loss_value)
     
+    jax.debug.print("loss_value {x}",x=loss_value)
     return model
 
 

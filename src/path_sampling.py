@@ -4,6 +4,7 @@ from nn import MLP, train
 import numpy as np
 import matplotlib.pyplot as plt
 import optax 
+import scipy
 
 # number of paths sampled in one run of calculating dbds. We could handle with parallelization (pmap)
 batch_size = 1000
@@ -31,7 +32,10 @@ def sample_sde(b, W, rho, dt, num_steps, key):
 
 # currently set for TPS
 def J(x,y):
-    return (x[-1, :] > 0.).astype(jnp.float32)
+
+    return jax.scipy.stats.norm.pdf(x[-1,0], loc=2, scale=1)
+
+    # return (x[-1, :] > 0.).astype(jnp.float32)
 
 def E_J(paths, obs):
     return jnp.mean(jax.vmap(J)(paths, obs),axis=0)
@@ -48,12 +52,12 @@ def make_h(b, dbds):
         dxdts = jnp.concatenate([jnp.zeros((1, x.shape[1])) , x[1:, :] - x[:-1, :]], axis=0)
 
         # calculate divergence of dbds at all times, using the trace of the jacobian
-        div_dbdss = jax.vmap(lambda xt, t: jnp.trace(jax.jacobian(lambda k: dbds(jnp.expand_dims(k,0),t)[0])(xt)))(x, time)
+        div_dbdss = jax.vmap(lambda xt, t: jnp.trace(jax.jacobian(lambda k: dbds(k,t))(xt)))(x, time)
 
         # the discretized integral
         out = jax.vmap(lambda x, t, dxdt, div_dbds: 
                     
-                    -0.5*dt*((b(x,t) - dxdt).dot(dbds(jnp.expand_dims(x,0),t)[0]) + 0.5*div_dbds)
+                    -0.5*dt*((b(x,t) - dxdt).dot(dbds(x,t)) + 0.5*div_dbds)
                     )(x,time, dxdts, div_dbdss)
         
         return jnp.sum(out) 
@@ -66,13 +70,19 @@ def make_h_loss(expectation_of_J, b):
     
     def h_loss(dbds, xs, times, ys):
 
+        # question: should the expectation of J depend on dbds indirectly?
+
 
         h = make_h(b, dbds)
 
         expectation_of_h = jnp.mean(jax.vmap(h)(xs, times), axis=0)
 
+        jax.debug.print("expectation_of_h {x}",x=expectation_of_h)
+        jax.debug.print("h {x}",x=h(xs[0],times[0]))
+        # jax.debug.print("j {x}",x=(expectation_of_J, J(xs[0],ys[0])))
 
-        return jnp.mean(jax.vmap(lambda x,y, t: (-J(x, y)+expectation_of_J - h(x,t) + expectation_of_h)**2)(xs, ys, times))
+        # question: don't the two Js cancel under this sum?
+        return jnp.sum(jax.vmap(lambda x,y, t: (-J(x, y)+expectation_of_J - h(x,t) + expectation_of_h)**2)(xs, ys, times))
 
     return h_loss        
 
@@ -90,6 +100,7 @@ def find_dbds(model_key, expectation_of_J, b, xs, times, ys, num_training_steps)
 
     return dbds
 
+
 # b \mapsto b + dbds
 def update(b, hyperparams, key):
 
@@ -105,10 +116,11 @@ def update(b, hyperparams, key):
     dt=hyperparams['dt'], 
     num_steps=hyperparams['num_steps']))(jax.random.split(path_key, batch_size))
 
+    # try running mchmc on this
+
 
     x = jnp.expand_dims(jnp.linspace(-5, 5, 100), 1)
     y = (x**4 - 8 * x**2)
-    # y2 = jax.grad(lambda x: jnp.sum(x**4 - 8 * x**2))(x)
     y2 = jax.vmap(lambda k: b(k, 0.1))(x)
     plt.ylim(-15,15)
     plt.plot(x, y)
@@ -119,10 +131,6 @@ def update(b, hyperparams, key):
     plt.hist(xs[0], bins=100, density=True)
     plt.savefig('potential_new.png')
 
-
-
-    # print("time", times.shape)
-    # print("xs", xs.shape)
     
     ys = (xs > 0).astype(jnp.float32)
 
@@ -135,12 +143,6 @@ def update(b, hyperparams, key):
     # print(expectation_of_J.shape)
     # print(b(xs[0][0],0.0))
     # print(dbds(jnp.expand_dims(xs[0][0],0), 0.0))
-
-
-    
-    
-
-
     # print(make_h_loss(expectation_of_J, b)(
     #     dbds, 
     #     xs, 
@@ -180,7 +182,7 @@ def update(b, hyperparams, key):
 
     ## TODO: you need to pass in the algorithmic time!!! or not?
     
-    new_b =  lambda x, t: (b(x,t) + dbds(jnp.expand_dims(x, 0),t)[0])
+    new_b =  lambda x, t: (b(x,t) + dbds(x,t))
     # new_b =  lambda x, t: (dbds(jnp.expand_dims(x, 0)[0],t))
 
     # print(b(xs[0, 0, :],0.1).shape)
@@ -195,12 +197,32 @@ def update(b, hyperparams, key):
    
 potential = lambda x: jnp.sum(x**4 - 8 * x**2,axis=0)
 
-schedule = [0.0, 0.1]
-
 
 def b(x, t): 
     assert x.shape[0] == ndims
     return -jax.grad(potential)(x)
+
+logdensity_fn = lambda x: -0.5 * jnp.sum(jnp.square(x))
+num_steps = 10000
+transform = lambda state, info: state.position[:2]
+
+hyperparams={'dt': 0.01, 'num_steps': 50, 'num_training_steps' : 1000}
+path_key = jax.random.key(0)
+xs, times = jax.pmap(lambda key:sample_sde(
+    b=b, 
+    W = lambda _, key: jnp.sqrt(2)*jax.random.normal(key, shape=(ndims,)),
+    rho = lambda key: jnp.ones((ndims,))-2.,
+    key=key, 
+    dt=hyperparams['dt'], 
+    num_steps=hyperparams['num_steps']))(jax.random.split(path_key, batch_size))
+
+initial_position = xs[0, :, 0]
+
+# print(initial_position.shape)
+# raise Exception
+
+
+schedule = [0.0, 0.1] # , 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
 
 key = jax.random.key(0)
