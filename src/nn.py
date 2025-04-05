@@ -55,7 +55,7 @@ def train(loss,model, optimizer, num_training_steps, x, t, y):
 
         model, opt_state, loss_value = train_step(model, opt_state, x, t, y)
     
-    jax.debug.print("loss_value {x}",x=loss_value)
+    jax.debug.print("Train loss: {x}",x=loss_value)
     return model
 
 
