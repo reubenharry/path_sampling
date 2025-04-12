@@ -15,9 +15,9 @@ class MLP(eqx.Module):
             for i in range(len(dims) - 1)
         ]
 
-    def __call__(self, x, t):
+    def __call__(self, x, t, s):
 
-        x = jnp.concatenate([x, jnp.ones_like(x) * t], axis=-1)
+        x = jnp.concatenate([x, jnp.ones_like(x) * t, jnp.ones_like(x) * s], axis=-1)
         
         # Apply each layer; use ReLU activations for hidden layers.
         for layer in self.layers[:-1]:
