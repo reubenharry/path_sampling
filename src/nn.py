@@ -18,9 +18,12 @@ class MLP(eqx.Module):
     def __call__(self, x, t, s):
 
         x = jnp.concatenate([x, jnp.ones_like(x) * t, jnp.ones_like(x) * s], axis=-1)
+
+        # print(x.shape, "x shape nn")
         
         # Apply each layer; use ReLU activations for hidden layers.
         for layer in self.layers[:-1]:
+            # print(x.shape, "x shape before layer")
             x = (layer)(x)
             x = jax.nn.relu(x)
         # Final layer (no activation).
