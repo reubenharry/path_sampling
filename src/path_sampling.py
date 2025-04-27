@@ -168,7 +168,7 @@ def make_b(schedule, uref, dbds):
     # dss = np.concatenate([np.array([schedule[0]]), np.array(schedule)[1:] - np.array(schedule)[:-1]])
     dss = np.array(schedule_padded)[1:] - np.array(schedule_padded)[:-1]
 
-    print(dss)
+    # print(dss, "dss")
 
 
     # print(list(zip(schedule, dss)), "schedule")
@@ -176,3 +176,336 @@ def make_b(schedule, uref, dbds):
     b = lambda x, t: (uref(x,t) + sum([ds*dbds(x,t,s) for (s,ds) in zip(schedule, dss)]))
 
     return b 
+
+
+
+# b \mapsto b + dbds
+# Pseudo code:
+# create `xs` of shape [batch_size, num_steps, ndims]
+# calculate expectation of J
+# initialize a neural net as function from R^ndims x R -> R^ndims
+# fit weights of neural net according to the loss function
+# calculate test loss
+# return lambda x: b(x) + dbds(x)
+from mclmc import refine_path
+from path_sampling import E_J, find_dbds, make_b, make_h_loss
+import numpy as np
+
+def plot_path(path, time, potential, label, i):
+
+    if path.shape[1] != 2:
+
+        plt.plot(path, time, label=label)
+        x = jnp.expand_dims(jnp.linspace(-2, 2, 100), 1)
+        y = potential(x)
+        if i==0: plt.plot(x, y)
+
+    else:
+
+        # plot path in 2D
+        plt.plot(path[:, 0], path[:, 1], label=label)
+        plt.legend()
+        
+        
+        # plot heatmap of the potential make_double_well_potential
+        v = 1.0
+        x = np.linspace(-2, 2, 100)
+        y = np.linspace(-2, 2, 100)
+        X, Y = np.meshgrid(x, y)
+        # print(X.shape)
+        # use vmap to apply the potential to the grid
+        Z = jax.vmap(lambda x,y: potential(jnp.array([x,y])))(X.reshape(-1), Y.reshape(-1)).reshape(X.shape)
+        plt.contourf(X, Y, Z, levels=50)
+
+def update(uref, J, I, dbds, hyperparams, key, schedule, i, A, rho = lambda key: jnp.zeros((1,))-1., refine=False, ndims=1):
+    """
+    b: drift term. A function from R^ndims x R -> R^ndims
+    hyperparams: dictionary of hyperparameters
+    key: random key for the model
+    i: index for the current iteration (just for labelling plots)
+    Returns:
+        new_b: the updated drift term, which is a function from R^ndims x R -> R^ndims
+    """
+
+    
+
+    new_s = schedule[i]
+    old_s = schedule[i-1] if i>0 else 0.0
+    ds = new_s - old_s
+
+    b = make_b(schedule[:i], uref, dbds)
+
+    path_key, model_key, refine_key = jax.random.split(key, 3)
+
+    W = lambda _, key: jnp.sqrt(2)*jax.random.normal(key, shape=(ndims,))
+    
+
+    # xs : [batch_size, num_steps, ndims]
+    xs, times = jax.pmap(lambda key:sample_sde(
+    b=b, 
+    W = W,
+    rho = rho,
+    key=key, 
+    dt=hyperparams['dt'], 
+    num_steps=hyperparams['num_steps']))(jax.random.split(path_key, hyperparams['batch_size']))
+
+    time = np.arange(0,hyperparams['num_steps'])*hyperparams['dt']
+    
+    print("old s", old_s)
+
+    # path refinement
+    if refine:
+        new_xs = jax.pmap(lambda key, p: refine_path(
+        x=p,
+        b=b,
+        s=old_s,
+        J=J,
+        I=I,
+        time=time,
+        rng_key=key,
+        num_steps=1000
+        ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)[:,:, None]
+        xs = new_xs
+
+    # print(E_J(xs, None), "ej x")
+    # print(E_J(new_xs, None), "ej new x")
+    # print(times)
+
+    # for path in xs:
+    #     plt.plot(path,(time/hyperparams['dt'])/10, label='old')
+
+    # plt.plot(xs[0],(time/hyperparams['dt'])/10, label='old')
+    # for path in new_xs:
+    #     plt.plot(path,(time/hyperparams['dt'])/5, label=f'annealed')
+    # plt.plot(new_xs[0],(time/hyperparams['dt'])/10, label=f'annealed{i}')
+
+    # xs = jnp.concatenate((xs[:10, :, :], new_xs[:30, :, :]), axis=0)
+
+    expectation_of_J = E_J(J, xs, None)
+
+    dbds = find_dbds(
+        dbds=dbds,
+        J=J,
+        s=new_s,
+        b=b,
+        # xs[:90, :, :],
+        # times[:90, :],
+        xs=xs,
+        times=times,
+        ys=None,
+        num_training_steps=hyperparams['num_training_steps']
+        )
+    
+    ### calculate test loss
+    test_xs, test_times = jax.pmap(lambda key:sample_sde(
+        b=b, 
+        W = W,
+        rho = rho,
+        key=key, 
+        dt=hyperparams['dt'], 
+        num_steps=hyperparams['num_steps']))(jax.random.split(jax.random.key(500), hyperparams['batch_size']))
+
+    print(f"Test loss is {make_h_loss(expectation_of_J=expectation_of_J, J=J, b=b, s=new_s)(dbds, test_xs, test_times, None)}")
+
+    # new version
+    # new+b = b + [dbds(x,t,s)*delta_s for s in ...]
+
+    # print(ds, "ds")
+    
+    # new_b =  lambda x, t: (b(x,t) + dbds(x,t, 0.0)*ds)
+
+    # new_b =  lambda x, t: (b(x,t) + dbds(x,t, new_s))
+
+
+    plot = True
+    if plot:
+        
+        new_b = make_b(schedule[:i+1], b, dbds)
+        
+
+        
+        potential = make_double_well_potential(v=5.0)
+        
+        
+
+        path, time = sample_sde(
+            b=new_b, 
+            W = W,
+            rho = rho,
+            key=key, 
+            dt=hyperparams['dt'], 
+            num_steps=hyperparams['num_steps'])
+                
+        # refined_path = refine_path(
+        #     x=path,
+        #     s=new_s,
+        #     J=J,
+        #     b=
+        #     I=I,
+        #     time=time,
+        #     rng_key=jax.random.key(2),
+        #     num_steps=10000
+        #     )
+        
+
+        print("OM of path", I(path, time, b))
+        # print("OM of refined path", I(refined_path, time, uref))
+
+        plot_path(path, (time/hyperparams['dt'])/10, potential, label=f"s: {new_s}", i=i)
+        # plt.plot(path,(time/hyperparams['dt'])/10, label=f"s: {new_s}")
+        # plt.plot(refined_path,(time/hyperparams['dt'])/10, label=f'refined, s:{new_s}')
+        # plt.savefig('potential_new.png')
+        plt.legend()
+
+    # return new_b, A - ds*expectation_of_J
+    return dbds, A - ds*expectation_of_J
+
+def update_non_amortized(b, J, I, dbds, hyperparams, key, schedule, i, A, rho = lambda key: jnp.zeros((1,))-1., refine=False, ndims=1):
+    """
+    b: drift term. A function from R^ndims x R -> R^ndims
+    hyperparams: dictionary of hyperparameters
+    key: random key for the model
+    i: index for the current iteration (just for labelling plots)
+    Returns:
+        new_b: the updated drift term, which is a function from R^ndims x R -> R^ndims
+    """
+
+    
+
+    new_s = schedule[i]
+    old_s = schedule[i-1] if i>0 else 0.0
+    ds = new_s - old_s
+
+    # b = make_b(schedule[:i], b, dbds)
+
+    path_key, model_key, refine_key = jax.random.split(key, 3)
+
+    W = lambda _, key: jnp.sqrt(2)*jax.random.normal(key, shape=(ndims,))
+    
+
+    # xs : [batch_size, num_steps, ndims]
+    xs, times = jax.pmap(lambda key:sample_sde(
+    b=b, 
+    W = W,
+    rho = rho,
+    key=key, 
+    dt=hyperparams['dt'], 
+    num_steps=hyperparams['num_steps']))(jax.random.split(path_key, hyperparams['batch_size']))
+
+    time = np.arange(0,hyperparams['num_steps'])*hyperparams['dt']
+    
+    print("old s", old_s)
+
+    # path refinement
+    if refine:
+        new_xs = jax.pmap(lambda key, p: refine_path(
+        x=p,
+        s=old_s,
+        b=b,
+        J=J,
+        I=I,
+        time=time,
+        rng_key=key,
+        num_steps=1000
+        ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)[:,:, None]
+        xs = new_xs
+
+    # print(E_J(xs, None), "ej x")
+    # print(E_J(new_xs, None), "ej new x")
+    # print(times)
+
+    # for path in xs:
+    #     plt.plot(path,(time/hyperparams['dt'])/10, label='old')
+
+    # plt.plot(xs[0],(time/hyperparams['dt'])/10, label='old')
+    # for path in new_xs:
+    #     plt.plot(path,(time/hyperparams['dt'])/5, label=f'annealed')
+    # plt.plot(new_xs[0],(time/hyperparams['dt'])/10, label=f'annealed{i}')
+
+    # xs = jnp.concatenate((xs[:10, :, :], new_xs[:30, :, :]), axis=0)
+
+    expectation_of_J = E_J(J, xs, None)
+
+    dbds = find_dbds(
+        dbds=dbds,
+        J=J,
+        s=new_s,
+        b=b,
+        # xs[:90, :, :],
+        # times[:90, :],
+        xs=xs,
+        times=times,
+        ys=None,
+        num_training_steps=hyperparams['num_training_steps']
+        )
+    
+    ### calculate test loss
+    test_xs, test_times = jax.pmap(lambda key:sample_sde(
+        b=b, 
+        W = W,
+        rho = rho,
+        key=key, 
+        dt=hyperparams['dt'], 
+        num_steps=hyperparams['num_steps']))(jax.random.split(jax.random.key(500), hyperparams['batch_size']))
+
+    print(f"Test loss is {make_h_loss(expectation_of_J=expectation_of_J, J=J, b=b, s=new_s)(dbds, test_xs, test_times, None)}")
+
+    # new version
+    # new+b = b + [dbds(x,t,s)*delta_s for s in ...]
+
+    # print(ds, "ds")
+    
+
+    new_b =  lambda x, t: (b(x,t) + dbds(x,t, 0.0)*ds)
+
+    plot = True
+    if plot:
+        
+        
+        # new_b = make_b(schedule[:i+1], b, dbds)
+
+        
+        # y = (x**4 - 8 * x**2)
+        # y = make_double_well_potential(v=5.0)(x)
+        # y2 = jax.vmap(lambda k, t: new_b(k, t))(x, times[0])
+        # plt.ylim(0,15)
+        # if i==0: plt.plot(x, y)
+        # plt.plot(x, y2/50)
+        # print(y2)
+
+        path, time = sample_sde(
+            b=new_b, 
+            W = W,
+            rho = rho,
+            key=key, 
+            dt=hyperparams['dt'], 
+            num_steps=hyperparams['num_steps'])
+        
+        
+
+        print("OM of path", I(path, time, b))
+        # print("OM of refined path", I(refined_path, time, uref))
+
+        # plt.plot(path,(time/hyperparams['dt'])/10, label=f"s: {new_s}")
+        if refine:
+
+            if refine:
+                refined_path = refine_path(
+                    x=path,
+                    s=new_s,
+                    J=J,
+                    b=b,
+                    I=I,
+                    time=time,
+                    rng_key=jax.random.key(2),
+                    num_steps=10000
+                    )
+            # plt.plot(refined_path,(time/hyperparams['dt'])/10, label=f'refined, s:{new_s}')
+            plot_path(refined_path, (time/hyperparams['dt'])/10, make_double_well_potential(v=5.0), label=f"s: {new_s}", i=i)
+
+        plot_path(path, (time/hyperparams['dt'])/10, make_double_well_potential(v=5.0), label=f"s: {new_s}", i=i)
+        # plt.savefig('potential_new.png')
+        plt.legend()
+
+    # return new_b, A - ds*expectation_of_J
+    return new_b, A - ds*expectation_of_J
