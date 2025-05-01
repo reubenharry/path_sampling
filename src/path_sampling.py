@@ -9,6 +9,8 @@ import os
 from functools import partial
 import itertools
 
+from spde import refine_spde_brownian
+
 
 def sample_sde(b, W, rho, dt, num_steps, key):
 
@@ -255,6 +257,7 @@ def update(uref, J, I, dbds, hyperparams, key, schedule, i, A, rho = lambda key:
 
     # path refinement
     if refine:
+        # jax.debug.print("shapes 1 {xs.shape}", xs=xs.shape)
         new_xs = jax.pmap(lambda key, p: refine_path(
         x=p,
         b=b,
@@ -266,6 +269,7 @@ def update(uref, J, I, dbds, hyperparams, key, schedule, i, A, rho = lambda key:
         num_steps=1000
         ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)[:,:, None]
         xs = new_xs
+        # jax.debug.print("shapes 2 {xs.shape}", xs=xs.shape)
 
     # print(E_J(xs, None), "ej x")
     # print(E_J(new_xs, None), "ej new x")
@@ -360,7 +364,7 @@ def update(uref, J, I, dbds, hyperparams, key, schedule, i, A, rho = lambda key:
     # return new_b, A - ds*expectation_of_J
     return dbds, A - ds*expectation_of_J
 
-def update_non_amortized(b, J, I, dbds, hyperparams, key, schedule, i, A, rho = lambda key: jnp.zeros((1,))-1., refine=False, ndims=1):
+def update_non_amortized(V, b, J, I, dbds, hyperparams, key, schedule, i, A, rho = lambda key: jnp.zeros((1,))-1., refine=False, ndims=1):
     """
     b: drift term. A function from R^ndims x R -> R^ndims
     hyperparams: dictionary of hyperparameters
@@ -398,24 +402,44 @@ def update_non_amortized(b, J, I, dbds, hyperparams, key, schedule, i, A, rho = 
 
     # path refinement
     if refine:
-        new_xs = jax.pmap(lambda key, p: refine_path(
-        x=p,
+        # new_xs = jax.pmap(lambda key, p: refine_path(
+        # x=p,
+        # s=old_s,
+        # b=b,
+        # J=J,
+        # I=I,
+        # time=time,
+        # rng_key=key,
+        # num_steps=1000
+        # ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)[:,:, None]
+        # xs = new_xs
+        # for path in xs:
+        #     plt.plot(path,(time/hyperparams['dt'])/10, label='old')
+
+        # jax.debug.print("shapes 1 {x}", x=xs.shape)
+
+        # plt.plot(xs[0],(time/hyperparams['dt'])/10, label=f'old{i}')
+        new_xs = jax.pmap(lambda key, p: refine_spde_brownian(
+        xts=p,
+        V=V,
         s=old_s,
-        b=b,
-        J=J,
-        I=I,
-        time=time,
-        rng_key=key,
-        num_steps=1000
-        ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)[:,:, None]
+        ds=0.001,
+        hyperparams=hyperparams,
+        key=key,
+        num_steps=100
+        ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)
         xs = new_xs
+
+        # jax.debug.print("shapes 2 {x}", x=xs.shape)
+
+        # for path in xs:
+        #     plt.plot(path,(time/hyperparams['dt'])/10, label='old')
+        # plt.plot(xs[0],(time/hyperparams['dt'])/10, label=f'new{i}')
 
     # print(E_J(xs, None), "ej x")
     # print(E_J(new_xs, None), "ej new x")
     # print(times)
 
-    # for path in xs:
-    #     plt.plot(path,(time/hyperparams['dt'])/10, label='old')
 
     # plt.plot(xs[0],(time/hyperparams['dt'])/10, label='old')
     # for path in new_xs:
@@ -483,27 +507,36 @@ def update_non_amortized(b, J, I, dbds, hyperparams, key, schedule, i, A, rho = 
         
         
 
-        print("OM of path", I(path, time, b))
+        # print("OM of path", I(path, time, b))
         # print("OM of refined path", I(refined_path, time, uref))
 
         # plt.plot(path,(time/hyperparams['dt'])/10, label=f"s: {new_s}")
         if refine:
 
-            if refine:
-                refined_path = refine_path(
-                    x=path,
-                    s=new_s,
-                    J=J,
-                    b=b,
-                    I=I,
-                    time=time,
-                    rng_key=jax.random.key(2),
-                    num_steps=10000
-                    )
+            # refined_path = refine_path(
+            #     x=path,
+            #     s=new_s,
+            #     J=J,
+            #     b=b,
+            #     I=I,
+            #     time=time,
+            #     rng_key=jax.random.key(2),
+            #     num_steps=10000
+            #     )
+            
+            refined_path = refine_spde_brownian(
+                xts=path,
+                V=V,
+                s=new_s,
+                ds=0.001,
+                hyperparams=hyperparams,
+                key=key,
+                num_steps=100
+                )
             # plt.plot(refined_path,(time/hyperparams['dt'])/10, label=f'refined, s:{new_s}')
-            plot_path(refined_path, (time/hyperparams['dt'])/10, make_double_well_potential(v=5.0), label=f"s: {new_s}", i=i)
+            plot_path(refined_path, (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f"s: {new_s}(post spde)", i=i)
 
-        plot_path(path, (time/hyperparams['dt'])/10, make_double_well_potential(v=5.0), label=f"s: {new_s}", i=i)
+        plot_path(path, (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f"s: {new_s}", i=i)
         # plt.savefig('potential_new.png')
         plt.legend()
 
