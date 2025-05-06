@@ -9,7 +9,7 @@ import os
 from functools import partial
 import itertools
 
-from spde import refine_spde_brownian
+from spde import refine_spde
 
 
 def sample_sde(b, W, rho, dt, num_steps, key):
@@ -189,7 +189,7 @@ def make_b(schedule, uref, dbds):
 # fit weights of neural net according to the loss function
 # calculate test loss
 # return lambda x: b(x) + dbds(x)
-from mclmc import refine_path
+# from mclmc import refine_path
 from path_sampling import E_J, find_dbds, make_b, make_h_loss
 import numpy as np
 
@@ -219,7 +219,7 @@ def plot_path(path, time, potential, label, i):
         Z = jax.vmap(lambda x,y: potential(jnp.array([x,y])))(X.reshape(-1), Y.reshape(-1)).reshape(X.shape)
         plt.contourf(X, Y, Z, levels=50)
 
-def update(uref, J, I, dbds, hyperparams, key, schedule, i, A, rho = lambda key: jnp.zeros((1,))-1., refine=False, ndims=1):
+def update(V, uref, J, prior, dbds, hyperparams, key, schedule, i, A, rho = lambda key: jnp.zeros((1,))-1., refine=False, ndims=1):
     """
     b: drift term. A function from R^ndims x R -> R^ndims
     hyperparams: dictionary of hyperparameters
@@ -258,16 +258,30 @@ def update(uref, J, I, dbds, hyperparams, key, schedule, i, A, rho = lambda key:
     # path refinement
     if refine:
         # jax.debug.print("shapes 1 {xs.shape}", xs=xs.shape)
-        new_xs = jax.pmap(lambda key, p: refine_path(
-        x=p,
-        b=b,
+        # new_xs = jax.pmap(lambda key, p: refine_path(
+        # x=p,
+        # b=b,
+        # s=old_s,
+        # J=J,
+        # I=I,
+        # time=time,
+        # rng_key=key,
+        # num_steps=1000
+        # ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)[:,:, None]
+        # xs = new_xs
+
+        new_xs, _ = jax.pmap(lambda key, p: refine_spde(
+        xts=p,
+        V=V,
         s=old_s,
-        J=J,
-        I=I,
-        time=time,
-        rng_key=key,
-        num_steps=1000
-        ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)[:,:, None]
+        ds=0.001,
+        hyperparams=hyperparams,
+        key=key,
+        num_steps=100,
+        prior=prior,
+        mh=False,
+        A=A,
+        ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)
         xs = new_xs
         # jax.debug.print("shapes 2 {xs.shape}", xs=xs.shape)
 
@@ -350,9 +364,24 @@ def update(uref, J, I, dbds, hyperparams, key, schedule, i, A, rho = lambda key:
         #     rng_key=jax.random.key(2),
         #     num_steps=10000
         #     )
+
+        # refined, _ = refine_spde(
+        # xts=path,
+        # V=V,
+        # s=old_s,
+        # ds=0.001,
+        # hyperparams=hyperparams,
+        # key=key,
+        # num_steps=100,
+        # prior=prior,
+        # mh=False,
+        # A=A,
+        # )
+        
+        # path = new_xs
         
 
-        print("OM of path", I(path, time, b))
+        # print("OM of path", I(path, time, b))
         # print("OM of refined path", I(refined_path, time, uref))
 
         plot_path(path, (time/hyperparams['dt'])/10, potential, label=f"s: {new_s}", i=i)
@@ -364,7 +393,7 @@ def update(uref, J, I, dbds, hyperparams, key, schedule, i, A, rho = lambda key:
     # return new_b, A - ds*expectation_of_J
     return dbds, A - ds*expectation_of_J
 
-def update_non_amortized(V, b, J, I, dbds, hyperparams, key, schedule, i, A, rho = lambda key: jnp.zeros((1,))-1., refine=False, ndims=1):
+def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A, rho = lambda key: jnp.zeros((1,))-1., refine=False, ndims=1):
     """
     b: drift term. A function from R^ndims x R -> R^ndims
     hyperparams: dictionary of hyperparameters
@@ -419,14 +448,17 @@ def update_non_amortized(V, b, J, I, dbds, hyperparams, key, schedule, i, A, rho
         # jax.debug.print("shapes 1 {x}", x=xs.shape)
 
         # plt.plot(xs[0],(time/hyperparams['dt'])/10, label=f'old{i}')
-        new_xs = jax.pmap(lambda key, p: refine_spde_brownian(
+        new_xs, _ = jax.pmap(lambda key, p: refine_spde(
         xts=p,
         V=V,
         s=old_s,
         ds=0.001,
         hyperparams=hyperparams,
         key=key,
-        num_steps=100
+        num_steps=100,
+        prior=prior,
+        mh=False,
+        A=A,
         ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)
         xs = new_xs
 
@@ -524,14 +556,17 @@ def update_non_amortized(V, b, J, I, dbds, hyperparams, key, schedule, i, A, rho
             #     num_steps=10000
             #     )
             
-            refined_path = refine_spde_brownian(
+            refined_path, _ = refine_spde(
                 xts=path,
                 V=V,
                 s=new_s,
                 ds=0.001,
                 hyperparams=hyperparams,
                 key=key,
-                num_steps=100
+                num_steps=100,
+                A=A,
+                prior=prior,
+                mh=False,
                 )
             # plt.plot(refined_path,(time/hyperparams['dt'])/10, label=f'refined, s:{new_s}')
             plot_path(refined_path, (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f"s: {new_s}(post spde)", i=i)
