@@ -53,6 +53,7 @@ def step(xts, potential, s, ds, A, key, hyperparams, mh=False, prior= 'brownian'
         xts_ds = xts_ds.at[0].set(-1)
         # jax.debug.print("xts_ds {x}", x=(xts_ds[-2], dt, s, (1/0.01**2) , (u(xts_ds[-2]) + ((2.*s)/(0.01**2) )*((1 - xts_ds[-2])) )))
         xts_ds = xts_ds.at[-1].set(xts_ds[-2] + dt*(u(xts_ds[-2]) + ((2.*s)/(sigma**2) )*((1 - xts_ds[-2])) )) #todo: pass in sigma
+        # xts_ds = xts_ds.at[-1].set(1)
         # xts_ds = xts_ds.at[-2].set(xts_ds[-2] + dt*(u(xts_ds[-1]) + ((2.*s)/(0.01**2) )*((1 - xts_ds[-1])) )) #todo: pass in sigma
 
     def q(xts, xts_prime):
