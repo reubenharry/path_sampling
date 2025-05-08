@@ -338,7 +338,7 @@ def update(V, uref, J, prior, dbds, hyperparams, key, schedule, i, A, rho = lamb
     plot = True
     if plot:
         
-        new_b = make_b(schedule[:i+1], b, dbds)
+        new_b = make_b(schedule[:i+1], uref, dbds)
         
 
         
@@ -346,13 +346,13 @@ def update(V, uref, J, prior, dbds, hyperparams, key, schedule, i, A, rho = lamb
         
         
 
-        path, time = sample_sde(
+        paths, times = jax.pmap(lambda key: sample_sde(
             b=new_b, 
             W = W,
             rho = rho,
             key=key, 
             dt=hyperparams['dt'], 
-            num_steps=hyperparams['num_steps'])
+            num_steps=hyperparams['num_steps']))(jax.random.split(key, 10))
                 
         # refined_path = refine_path(
         #     x=path,
@@ -384,7 +384,8 @@ def update(V, uref, J, prior, dbds, hyperparams, key, schedule, i, A, rho = lamb
         # print("OM of path", I(path, time, b))
         # print("OM of refined path", I(refined_path, time, uref))
 
-        plot_path(path, (time/hyperparams['dt'])/10, potential, label=f"s: {new_s}", i=i)
+        # for path in paths:
+        plot_path(paths[0], (times[0]/hyperparams['dt'])/10, potential, label=f"s: {new_s}", i=i)
         # plt.plot(path,(time/hyperparams['dt'])/10, label=f"s: {new_s}")
         # plt.plot(refined_path,(time/hyperparams['dt'])/10, label=f'refined, s:{new_s}')
         # plt.savefig('potential_new.png')
@@ -529,13 +530,13 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
         # plt.plot(x, y2/50)
         # print(y2)
 
-        path, time = sample_sde(
+        paths, times = jax.pmap(lambda k: sample_sde(
             b=new_b, 
             W = W,
             rho = rho,
-            key=key, 
+            key=k, 
             dt=hyperparams['dt'], 
-            num_steps=hyperparams['num_steps'])
+            num_steps=hyperparams['num_steps']))(jax.random.split(key, 10))
         
         
 
@@ -557,7 +558,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
             #     )
             
             refined_path, _ = refine_spde(
-                xts=path,
+                xts=paths[0],
                 V=V,
                 s=new_s,
                 ds=0.001,
@@ -569,9 +570,10 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
                 mh=False,
                 )
             # plt.plot(refined_path,(time/hyperparams['dt'])/10, label=f'refined, s:{new_s}')
-            plot_path(refined_path, (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f"s: {new_s}(post spde)", i=i)
+            plot_path(refined_path, (time/hyperparams['dt'])/2.5, V, label=f"s: {new_s}(post spde)", i=i)
 
-        plot_path(path, (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f"s: {new_s}", i=i)
+        # for path in paths:
+        plot_path(paths[0], (times[0]/hyperparams['dt'])/2.5, V, label=f"s: {new_s}", i=i)
         # plt.savefig('potential_new.png')
         plt.legend()
 
