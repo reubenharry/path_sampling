@@ -448,7 +448,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
 
         # jax.debug.print("shapes 1 {x}", x=xs.shape)
 
-        plt.plot(xs[0],(time/hyperparams['dt'])/10, label=f'old{i}')
+        plt.plot(xs[0],(time/hyperparams['dt'])/2.5, label=f'old{i}')
         new_xs, _ = jax.pmap(lambda key, p: refine_spde(
         xts=p,
         V=V,
@@ -467,7 +467,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
 
         # for path in xs:
         #     plt.plot(path,(time/hyperparams['dt'])/10, label='old')
-        plt.plot(xs[0],(time/hyperparams['dt'])/10, label=f'new{i}')
+        plt.plot(xs[0],(time/hyperparams['dt'])/2.5, label=f'new{i}')
 
     # print(E_J(xs, None), "ej x")
     # print(E_J(new_xs, None), "ej new x")
