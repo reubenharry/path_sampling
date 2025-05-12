@@ -323,7 +323,23 @@ def update(V, uref, J, prior, dbds, hyperparams, key, schedule, i, A, rho = lamb
         dt=hyperparams['dt'], 
         num_steps=hyperparams['num_steps']))(jax.random.split(jax.random.key(500), hyperparams['batch_size']))
 
+    if refine:
+        
+        test_xs, _ = jax.pmap(lambda key, p: refine_spde(
+        xts=p,
+        V=V,
+        s=old_s,
+        ds=0.001,
+        hyperparams=hyperparams,
+        key=key,
+        num_steps=100,
+        prior=prior,
+        mh=False,
+        A=A,
+        ))(jax.random.split(refine_key, hyperparams['batch_size']), test_xs)
     print(f"Test loss is {make_h_loss(expectation_of_J=expectation_of_J, J=J, b=b, s=new_s)(dbds, test_xs, test_times, None)}")
+
+
 
     # new version
     # new+b = b + [dbds(x,t,s)*delta_s for s in ...]
