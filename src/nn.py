@@ -31,9 +31,9 @@ class MLP(eqx.Module):
         return x
 
 # Define the mean squared error loss function.
-def mse_loss(model, x, t, y):
-    preds = model(x, t)
-    return jnp.mean((preds - y) ** 2)
+# def mse_loss(model, x, t, y):
+#     preds = model(x, t)
+#     return jnp.mean((preds - y) ** 2)
 
 # Define a single training step.
 def make_train_step(optimizer, loss):
@@ -63,36 +63,36 @@ def train(loss,model, optimizer, num_training_steps, x, t, y):
 
 
 
-def main():
-    # Set up PRNG keys.
-    key = jax.random.key(43)
-    model_key, data_key = jax.random.split(key)
+# def main():
+#     # Set up PRNG keys.
+#     key = jax.random.key(43)
+#     model_key, data_key = jax.random.split(key)
 
-    # Define network architecture: input dim=1, two hidden layers, output dim=1.
-    dims = [2, 128, 64, 1]
-    model = MLP(dims, key=model_key)
+#     # Define network architecture: input dim=1, two hidden layers, output dim=1.
+#     dims = [2, 128, 64, 1]
+#     model = MLP(dims, key=model_key)
 
-    # Set up the optimizer (Adam in this case).
-    learning_rate = 1e-3
-    optimizer = optax.adam(learning_rate)
+#     # Set up the optimizer (Adam in this case).
+#     learning_rate = 1e-3
+#     optimizer = optax.adam(learning_rate)
     
 
-    # Training parameters.
-    num_steps = 1000
+#     # Training parameters.
+#     num_steps = 1000
 
-    # Generate training data.
-    xs = jax.random.uniform(data_key, (10, 1), minval=-1.0, maxval=1.0)
-    ys = xs ** 2
+#     # Generate training data.
+#     xs = jax.random.uniform(data_key, (10, 1), minval=-1.0, maxval=1.0)
+#     ys = xs ** 2
 
 
-    model = train(mse_loss, model, optimizer, num_steps, x=xs, t=1.0, y=ys)
+#     model = train(mse_loss, model, optimizer, num_steps, x=xs, t=1.0, y=ys)
 
-    # Test the trained model on some inputs.
-    test_x = jnp.linspace(-1, 1, 10).reshape(-1, 1)
-    preds = model(test_x, 1.0)
-    print("Test inputs:", test_x.flatten())
-    print("Model predictions:", preds.flatten())
-    print("Loss", mse_loss(model, test_x, 1.0, test_x ** 2))
+#     # Test the trained model on some inputs.
+#     test_x = jnp.linspace(-1, 1, 10).reshape(-1, 1)
+#     preds = model(test_x, 1.0)
+#     print("Test inputs:", test_x.flatten())
+#     print("Model predictions:", preds.flatten())
+#     print("Loss", mse_loss(model, test_x, 1.0, test_x ** 2))
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()

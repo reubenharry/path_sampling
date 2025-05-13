@@ -24,7 +24,7 @@ def step(xts, potential, s, ds, A, key, hyperparams, mh=False, prior= 'brownian'
 
     grad_V = lambda x: jax.grad(potential)(x)
 
-    u = lambda x: -s*grad_V(x)
+    u = lambda x: -grad_V(x)
 
     dt = hyperparams['dt']
     discrete_laplacian = make_discrete_laplacian(hyperparams['num_steps'], dt)
