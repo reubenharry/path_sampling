@@ -192,6 +192,9 @@ def make_b(schedule, uref, dbds):
 # from mclmc import refine_path
 from path_sampling import E_J, find_dbds, make_b, make_h_loss
 import numpy as np
+# black to white colormap
+cmap = plt.cm.gray
+colors = cmap(np.linspace(0, 1, 10))
 
 def plot_path(path, time, potential, label, i):
 
@@ -205,8 +208,8 @@ def plot_path(path, time, potential, label, i):
     else:
 
         # plot path in 2D
-        plt.plot(path[:, 0], path[:, 1], label=label)
-        plt.legend()
+        plt.plot(path[:, 0], path[:, 1], label=label, color=colors[i])
+        # plt.legend()
         
         
         # plot heatmap of the potential make_double_well_potential
@@ -607,12 +610,12 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
                 mh=False,
                 )
             # plt.plot(refined_path,(time/hyperparams['dt'])/10, label=f'refined, s:{new_s}')
-            # plot_path(refined_path, (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={new_s}, after spde', i=i)
+            plot_path(refined_path, (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={new_s}, after spde', i=i)
 
         # for path in paths:
-        # plot_path(paths[0], (times[0]/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={new_s}, before spde', i=i)
+        plot_path(paths[0], (times[0]/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={new_s}, before spde', i=i)
         # plt.savefig('potential_new.png')
-        plt.legend()
+        # plt.legend()
 
     # return new_b, A - ds*expectation_of_J
     return new_b, A - ds*expectation_of_J
