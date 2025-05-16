@@ -100,7 +100,6 @@ def make_h(b, dbds, s):
         dxdts = dfdt(x, dt)
 
         # calculate divergence of dbds at all times, using the trace of the jacobian
-        # div_dbdss = jax.vmap(lambda xt, t: jnp.trace(jax.jacobian(lambda k: dbds(k,t))(xt)))(x, time)
         div_dbdss = div_f(x,time,partial(dbds, s=s))
 
         # the discretized integral
@@ -154,9 +153,6 @@ def find_dbds(dbds, J, s, b, xs, times, ys, num_training_steps):
 
     expectation_of_J = E_J(J, xs, ys)
 
-    # print(s, "s")
-
-    # dbds = MLP([3,20,20,1], key=model_key) # create an NN, with random weights
     learning_rate = 1e-3
     optimizer = optax.adam(learning_rate)
     h_loss = make_h_loss(expectation_of_J, J, b, s)
@@ -166,17 +162,8 @@ def find_dbds(dbds, J, s, b, xs, times, ys, num_training_steps):
 def make_b(schedule, uref, dbds):
 
     schedule_padded = np.concatenate([np.zeros((1,)), np.array(schedule)])
-
-    # dss = np.concatenate([np.array([schedule[0]]), np.array(schedule)[1:] - np.array(schedule)[:-1]])
     dss = np.array(schedule_padded)[1:] - np.array(schedule_padded)[:-1]
-
-    # print(dss, "dss")
-
-
-    # print(list(zip(schedule, dss)), "schedule")
-
     b = lambda x, t: (uref(x,t) + sum([ds*dbds(x,t,s) for (s,ds) in zip(schedule, dss)]))
-
     return b 
 
 
@@ -192,9 +179,7 @@ def make_b(schedule, uref, dbds):
 # from mclmc import refine_path
 from path_sampling import E_J, find_dbds, make_b, make_h_loss
 import numpy as np
-# black to white colormap
-cmap = plt.cm.gray
-colors = cmap(np.linspace(0, 1, 10))
+
 
 def plot_path(path, time, potential, label, i):
 
@@ -208,16 +193,14 @@ def plot_path(path, time, potential, label, i):
     else:
 
         # plot path in 2D
-        plt.plot(path[:, 0], path[:, 1], label=label, color=colors[i])
-        # plt.legend()
+        plt.plot(path[:, 0], path[:, 1], label=label)
+        plt.legend()
         
         
         # plot heatmap of the potential make_double_well_potential
-        v = 1.0
         x = np.linspace(-2, 2, 100)
         y = np.linspace(-2, 2, 100)
         X, Y = np.meshgrid(x, y)
-        # print(X.shape)
         # use vmap to apply the potential to the grid
         Z = jax.vmap(lambda x,y: potential(jnp.array([x,y])))(X.reshape(-1), Y.reshape(-1)).reshape(X.shape)
         plt.contourf(X, Y, Z, levels=50)
@@ -244,7 +227,6 @@ def update(V, uref, J, prior, dbds, hyperparams, key, schedule, i, A, rho = lamb
 
     W = lambda _, key: jnp.sqrt(2)*jax.random.normal(key, shape=(ndims,))
     
-
     # xs : [batch_size, num_steps, ndims]
     xs, times = jax.pmap(lambda key:sample_sde(
     b=b, 
@@ -260,18 +242,6 @@ def update(V, uref, J, prior, dbds, hyperparams, key, schedule, i, A, rho = lamb
 
     # path refinement
     if refine:
-        # jax.debug.print("shapes 1 {xs.shape}", xs=xs.shape)
-        # new_xs = jax.pmap(lambda key, p: refine_path(
-        # x=p,
-        # b=b,
-        # s=old_s,
-        # J=J,
-        # I=I,
-        # time=time,
-        # rng_key=key,
-        # num_steps=1000
-        # ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)[:,:, None]
-        # xs = new_xs
 
         new_xs, _ = jax.pmap(lambda key, p: refine_spde(
         xts=p,
@@ -286,21 +256,6 @@ def update(V, uref, J, prior, dbds, hyperparams, key, schedule, i, A, rho = lamb
         A=A,
         ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)
         xs = new_xs
-        # jax.debug.print("shapes 2 {xs.shape}", xs=xs.shape)
-
-    # print(E_J(xs, None), "ej x")
-    # print(E_J(new_xs, None), "ej new x")
-    # print(times)
-
-    # for path in xs:
-    #     plt.plot(path,(time/hyperparams['dt'])/10, label='old')
-
-    # plt.plot(xs[0],(time/hyperparams['dt'])/10, label='old')
-    # for path in new_xs:
-    #     plt.plot(path,(time/hyperparams['dt'])/5, label=f'annealed')
-    # plt.plot(new_xs[0],(time/hyperparams['dt'])/10, label=f'annealed{i}')
-
-    # xs = jnp.concatenate((xs[:10, :, :], new_xs[:30, :, :]), axis=0)
 
     expectation_of_J = E_J(J, xs, None)
 
@@ -309,8 +264,6 @@ def update(V, uref, J, prior, dbds, hyperparams, key, schedule, i, A, rho = lamb
         J=J,
         s=new_s,
         b=b,
-        # xs[:90, :, :],
-        # times[:90, :],
         xs=xs,
         times=times,
         ys=None,
@@ -343,17 +296,6 @@ def update(V, uref, J, prior, dbds, hyperparams, key, schedule, i, A, rho = lamb
     print(f"Test loss is {make_h_loss(expectation_of_J=expectation_of_J, J=J, b=b, s=new_s)(dbds, test_xs, test_times, None)}")
 
 
-
-    # new version
-    # new+b = b + [dbds(x,t,s)*delta_s for s in ...]
-
-    # print(ds, "ds")
-    
-    # new_b =  lambda x, t: (b(x,t) + dbds(x,t, 0.0)*ds)
-
-    # new_b =  lambda x, t: (b(x,t) + dbds(x,t, new_s))
-
-
     plot = True
     if plot:
         
@@ -373,44 +315,10 @@ def update(V, uref, J, prior, dbds, hyperparams, key, schedule, i, A, rho = lamb
             dt=hyperparams['dt'], 
             num_steps=hyperparams['num_steps']))(jax.random.split(key, 10))
                 
-        # refined_path = refine_path(
-        #     x=path,
-        #     s=new_s,
-        #     J=J,
-        #     b=
-        #     I=I,
-        #     time=time,
-        #     rng_key=jax.random.key(2),
-        #     num_steps=10000
-        #     )
-
-        # refined, _ = refine_spde(
-        # xts=path,
-        # V=V,
-        # s=old_s,
-        # ds=0.001,
-        # hyperparams=hyperparams,
-        # key=key,
-        # num_steps=100,
-        # prior=prior,
-        # mh=False,
-        # A=A,
-        # )
         
-        # path = new_xs
-        
-
-        # print("OM of path", I(path, time, b))
-        # print("OM of refined path", I(refined_path, time, uref))
-
-        # for path in paths:
         plot_path(paths[0], (times[0]/hyperparams['dt'])/10, potential, label=f"s: {new_s}", i=i)
-        # plt.plot(path,(time/hyperparams['dt'])/10, label=f"s: {new_s}")
-        # plt.plot(refined_path,(time/hyperparams['dt'])/10, label=f'refined, s:{new_s}')
-        # plt.savefig('potential_new.png')
         plt.legend()
 
-    # return new_b, A - ds*expectation_of_J
     return dbds, A - ds*expectation_of_J
 
 def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A, rho = lambda key: jnp.zeros((1,))-1., refine=False, ndims=1):
@@ -428,9 +336,6 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
     new_s = schedule[i]
     old_s = schedule[i-1] if i>0 else 0.0
     ds = new_s - old_s
-
-    # b = make_b(schedule[:i], b, dbds)
-
     path_key, model_key, refine_key = jax.random.split(key, 3)
 
     W = lambda _, key: jnp.sqrt(2)*jax.random.normal(key, shape=(ndims,))
@@ -455,23 +360,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
 
     # path refinement
     if refine:
-        # new_xs = jax.pmap(lambda key, p: refine_path(
-        # x=p,
-        # s=old_s,
-        # b=b,
-        # J=J,
-        # I=I,
-        # time=time,
-        # rng_key=key,
-        # num_steps=1000
-        # ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)[:,:, None]
-        # xs = new_xs
-        # for path in xs:
-        #     plt.plot(path,(time/hyperparams['dt'])/10, label='old')
-
-        # jax.debug.print("shapes 1 {x}", x=xs.shape)
-
-        # plt.plot(xs[0],(time/hyperparams['dt'])/2.5, label=f'old{i}')
+        
         new_xs, _ = jax.pmap(lambda key, p: refine_spde(
         xts=p,
         V=V,
@@ -488,24 +377,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
 
         if old_s==0:
             plot_path(xs[0], (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={old_s}, after spde', i=i)
-        # jax.debug.print("shapes 2 {x}", x=xs.shape)
-
-        # for path in xs:
-        #     plt.plot(path,(time/hyperparams['dt'])/10, label='old')
-        # plt.plot(xs[0],(time/hyperparams['dt'])/2.5, label=f'new{i}')
-
-    # print(E_J(xs, None), "ej x")
-    # print(E_J(new_xs, None), "ej new x")
-    # print(times)
-
-
-    # plt.plot(xs[0],(time/hyperparams['dt'])/10, label='old')
-    # for path in new_xs:
-    #     plt.plot(path,(time/hyperparams['dt'])/5, label=f'annealed')
-    # plt.plot(new_xs[0],(time/hyperparams['dt'])/10, label=f'annealed{i}')
-
-    # xs = jnp.concatenate((xs[:10, :, :], new_xs[:30, :, :]), axis=0)
-
+        
     expectation_of_J = E_J(J, xs, None)
 
     dbds = find_dbds(
@@ -513,8 +385,6 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
         J=J,
         s=new_s,
         b=b,
-        # xs[:90, :, :],
-        # times[:90, :],
         xs=xs,
         times=times,
         ys=None,
@@ -547,10 +417,6 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
 
     print(f"Test loss is {make_h_loss(expectation_of_J=expectation_of_J, J=J, b=b, s=new_s)(dbds, test_xs, test_times, None)}")
 
-    # new version
-    # new+b = b + [dbds(x,t,s)*delta_s for s in ...]
-
-    # print(ds, "ds")
     
 
     new_b =  lambda x, t: (b(x,t) + dbds(x,t, 0.0)*ds)
@@ -558,18 +424,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
     plot = True
     if plot:
         
-        
-        # new_b = make_b(schedule[:i+1], b, dbds)
-
-        
-        # y = (x**4 - 8 * x**2)
-        # y = make_double_well_potential(v=5.0)(x)
-        # y2 = jax.vmap(lambda k, t: new_b(k, t))(x, times[0])
-        # plt.ylim(0,15)
-        # if i==0: plt.plot(x, y)
-        # plt.plot(x, y2/50)
-        # print(y2)
-
+       
         paths, times = jax.pmap(lambda k: sample_sde(
             b=new_b, 
             W = W,
@@ -580,22 +435,8 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
         
         
 
-        # print("OM of path", I(path, time, b))
-        # print("OM of refined path", I(refined_path, time, uref))
-
-        # plt.plot(path,(time/hyperparams['dt'])/10, label=f"s: {new_s}")
+      
         if refine:
-
-            # refined_path = refine_path(
-            #     x=path,
-            #     s=new_s,
-            #     J=J,
-            #     b=b,
-            #     I=I,
-            #     time=time,
-            #     rng_key=jax.random.key(2),
-            #     num_steps=10000
-            #     )
             
             refined_path, _ = refine_spde(
                 xts=paths[0],
@@ -609,13 +450,10 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
                 prior=prior,
                 mh=False,
                 )
-            # plt.plot(refined_path,(time/hyperparams['dt'])/10, label=f'refined, s:{new_s}')
             plot_path(refined_path, (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={new_s}, after spde', i=i)
 
         # for path in paths:
         plot_path(paths[0], (times[0]/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={new_s}, before spde', i=i)
-        # plt.savefig('potential_new.png')
-        # plt.legend()
+        plt.legend()
 
-    # return new_b, A - ds*expectation_of_J
     return new_b, A - ds*expectation_of_J
