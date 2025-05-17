@@ -182,7 +182,7 @@ def find_dbds(dbds, J, s, b, xs, times, ys, num_training_steps):
 # calculate test loss
 # return lambda x: b(x) + dbds(x)
 # from mclmc import refine_path
-from path_sampling import E_J, find_dbds, make_b, make_h_loss
+from path_sampling import E_J, find_dbds, make_h_loss
 import numpy as np
 
 
