@@ -42,9 +42,10 @@ def sample_sde(b, W, rho, dt, num_steps, key):
     path, time =  jax.lax.scan(body, (X_0, 0), keys)[1]
     return jnp.concat((X_0[None], path), axis=0), jnp.concat((jnp.zeros(1,), time), axis=0)
 
-def make_double_well_potential(v):
-   
+
+def make_double_well_potential(v):   
     return lambda x: jnp.sum(v*(x**2 - 1)**2, axis=-1)
+
 
 # vmap is a jax function that allows us to apply a function to each element of an array
 def E_J(J, paths, obs):
@@ -55,6 +56,7 @@ def E_J(J, paths, obs):
         a scalar value representing the mean cost of the paths
     """
     return jnp.mean(jax.vmap(J)(paths, obs),axis=0)
+    
 
 def div_f(x,time, f):
     """
@@ -66,6 +68,11 @@ def div_f(x,time, f):
     """
     return jax.vmap(lambda xt, t: jnp.trace(jax.jacobian(lambda k: f(k,t))(xt)))(x, time)
 
+
+def make_discrete_derivative(size, dt):
+    return (-jnp.eye(size) + jnp.eye(size, k=1))/(dt)
+
+
 def dfdt(x, dt):
     """
     x: path of the SDE, array of shape [num_steps, ndims]
@@ -73,8 +80,9 @@ def dfdt(x, dt):
     Returns:
         an array of shape [num_steps, ndims] representing the derivative of x with respect to time
     """
-    return jnp.concatenate([jnp.zeros((1, x.shape[1])) , x[1:, :] - x[:-1, :]], axis=0)/ dt
-
+    #return jnp.concatenate([jnp.zeros((1, x.shape[1])) , x[1:, :] - x[:-1, :]], axis=0)/ dt
+    L = make_discrete_derivative(100, 0.01)  # this is hard-coded for now
+    return L @ x
 
 
 
@@ -112,6 +120,7 @@ def make_h(b, dbds, s):
 
     return h
 
+
 # compute the loss function, which here is the square of the difference between the left and right of (7)
 def make_h_loss(expectation_of_J, J, b, s):
     """
@@ -134,9 +143,10 @@ def make_h_loss(expectation_of_J, J, b, s):
 
         expectation_of_h = jnp.mean(jax.vmap(h)(xs, times), axis=0)
 
-        return jnp.sum(jax.vmap(lambda x,y, t: (-J(x, y)+expectation_of_J - h(x,t) + expectation_of_h)**2)(xs, ys, times))
+        return jnp.sum(jax.vmap(lambda x,y, t: (J(x, y) - expectation_of_J + h(x,t) - expectation_of_h)**2)(xs, ys, times))
 
     return h_loss
+
 
 def find_dbds(dbds, J, s, b, xs, times, ys, num_training_steps):
     """
@@ -153,18 +163,13 @@ def find_dbds(dbds, J, s, b, xs, times, ys, num_training_steps):
 
     expectation_of_J = E_J(J, xs, ys)
 
-    learning_rate = 1e-3
+    learning_rate = 1e-2
     optimizer = optax.adam(learning_rate)
     h_loss = make_h_loss(expectation_of_J, J, b, s)
     dbds = train(h_loss, dbds, optimizer, num_training_steps, xs, times, ys)
     return dbds
 
-def make_b(schedule, uref, dbds):
 
-    schedule_padded = np.concatenate([np.zeros((1,)), np.array(schedule)])
-    dss = np.array(schedule_padded)[1:] - np.array(schedule_padded)[:-1]
-    b = lambda x, t: (uref(x,t) + sum([ds*dbds(x,t,s) for (s,ds) in zip(schedule, dss)]))
-    return b 
 
 
 
@@ -205,121 +210,8 @@ def plot_path(path, time, potential, label, i):
         Z = jax.vmap(lambda x,y: potential(jnp.array([x,y])))(X.reshape(-1), Y.reshape(-1)).reshape(X.shape)
         plt.contourf(X, Y, Z, levels=50)
 
-def update(V, uref, J, prior, dbds, hyperparams, key, schedule, i, A, rho = lambda key: jnp.zeros((1,))-1., refine=False, ndims=1):
-    """
-    b: drift term. A function from R^ndims x R -> R^ndims
-    hyperparams: dictionary of hyperparameters
-    key: random key for the model
-    i: index for the current iteration (just for labelling plots)
-    Returns:
-        new_b: the updated drift term, which is a function from R^ndims x R -> R^ndims
-    """
-
-    
-
-    new_s = schedule[i]
-    old_s = schedule[i-1] if i>0 else 0.0
-    ds = new_s - old_s
-
-    b = make_b(schedule[:i], uref, dbds)
-
-    path_key, model_key, refine_key = jax.random.split(key, 3)
-
-    W = lambda _, key: jnp.sqrt(2)*jax.random.normal(key, shape=(ndims,))
-    
-    # xs : [batch_size, num_steps, ndims]
-    xs, times = jax.pmap(lambda key:sample_sde(
-    b=b, 
-    W = W,
-    rho = rho,
-    key=key, 
-    dt=hyperparams['dt'], 
-    num_steps=hyperparams['num_steps']))(jax.random.split(path_key, hyperparams['batch_size']))
-
-    time = np.arange(0,hyperparams['num_steps'])*hyperparams['dt']
-    
-    print("old s", old_s)
-
-    # path refinement
-    if refine:
-
-        new_xs, _ = jax.pmap(lambda key, p: refine_spde(
-        xts=p,
-        V=V,
-        s=old_s,
-        ds=0.001,
-        hyperparams=hyperparams,
-        key=key,
-        num_steps=30,
-        prior=prior,
-        mh=False,
-        A=A,
-        ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)
-        xs = new_xs
-
-    expectation_of_J = E_J(J, xs, None)
-
-    dbds = find_dbds(
-        dbds=dbds,
-        J=J,
-        s=new_s,
-        b=b,
-        xs=xs,
-        times=times,
-        ys=None,
-        num_training_steps=hyperparams['num_training_steps']
-        )
-    
-    ### calculate test loss
-    test_xs, test_times = jax.pmap(lambda key:sample_sde(
-        b=b, 
-        W = W,
-        rho = rho,
-        key=key, 
-        dt=hyperparams['dt'], 
-        num_steps=hyperparams['num_steps']))(jax.random.split(jax.random.key(500), hyperparams['batch_size']))
-
-    if refine:
-        
-        test_xs, _ = jax.pmap(lambda key, p: refine_spde(
-        xts=p,
-        V=V,
-        s=old_s,
-        ds=0.001,
-        hyperparams=hyperparams,
-        key=key,
-        num_steps=30,
-        prior=prior,
-        mh=False,
-        A=A,
-        ))(jax.random.split(refine_key, hyperparams['batch_size']), test_xs)
-    print(f"Test loss is {make_h_loss(expectation_of_J=expectation_of_J, J=J, b=b, s=new_s)(dbds, test_xs, test_times, None)}")
 
 
-    plot = True
-    if plot:
-        
-        new_b = make_b(schedule[:i+1], uref, dbds)
-        
-
-        
-        potential = make_double_well_potential(v=5.0)
-        
-        
-
-        paths, times = jax.pmap(lambda key: sample_sde(
-            b=new_b, 
-            W = W,
-            rho = rho,
-            key=key, 
-            dt=hyperparams['dt'], 
-            num_steps=hyperparams['num_steps']))(jax.random.split(key, 10))
-                
-        
-        plot_path(paths[0], (times[0]/hyperparams['dt'])/10, potential, label=f"s: {new_s}", i=i)
-        plt.legend()
-
-    return dbds, A - ds*expectation_of_J
 
 def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A, rho = lambda key: jnp.zeros((1,))-1., refine=False, ndims=1):
     """
@@ -330,7 +222,6 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
     Returns:
         new_b: the updated drift term, which is a function from R^ndims x R -> R^ndims
     """
-
     
 
     new_s = schedule[i]
@@ -359,8 +250,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
     print("s: ", old_s)
 
     # path refinement
-    if refine:
-        
+    if refine:      
         new_xs, _ = jax.pmap(lambda key, p: refine_spde(
         xts=p,
         V=V,
@@ -392,38 +282,37 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
         )
     
     ### calculate test loss
-    test_xs, test_times = jax.pmap(lambda key:sample_sde(
-        b=b, 
-        W = W,
-        rho = rho,
-        key=key, 
-        dt=hyperparams['dt'], 
-        num_steps=hyperparams['num_steps']))(jax.random.split(jax.random.key(500), hyperparams['batch_size']))
+    # test_xs, test_times = jax.pmap(lambda key:sample_sde(
+    #     b=b, 
+    #     W = W,
+    #     rho = rho,
+    #     key=key, 
+    #     dt=hyperparams['dt'], 
+    #     num_steps=hyperparams['num_steps']))(jax.random.split(jax.random.key(500), hyperparams['batch_size']))
 
-    if refine:
+    # if refine:
         
-        test_xs, _ = jax.pmap(lambda key, p: refine_spde(
-        xts=p,
-        V=V,
-        s=old_s,
-        ds=0.001,
-        hyperparams=hyperparams,
-        key=key,
-        num_steps=30,
-        prior=prior,
-        mh=False,
-        A=A,
-        ))(jax.random.split(refine_key, hyperparams['batch_size']), test_xs)
+    #     test_xs, _ = jax.pmap(lambda key, p: refine_spde(
+    #     xts=p,
+    #     V=V,
+    #     s=old_s,
+    #     ds=0.001,
+    #     hyperparams=hyperparams,
+    #     key=key,
+    #     num_steps=30,
+    #     prior=prior,
+    #     mh=False,
+    #     A=A,
+    #     ))(jax.random.split(refine_key, hyperparams['batch_size']), test_xs)
 
-    print(f"Test loss is {make_h_loss(expectation_of_J=expectation_of_J, J=J, b=b, s=new_s)(dbds, test_xs, test_times, None)}")
+    # print(f"Test loss is {make_h_loss(expectation_of_J=expectation_of_J, J=J, b=b, s=new_s)(dbds, test_xs, test_times, None)}")
 
     
 
-    new_b =  lambda x, t: (b(x,t) + dbds(x,t, 0.0)*ds)
+    new_b =  lambda x, t: (b(x,t) + dbds(x,t, 0.0)*ds)   # is it update correct?
 
     plot = True
-    if plot:
-        
+    if plot:        
        
         paths, times = jax.pmap(lambda k: sample_sde(
             b=new_b, 
@@ -431,9 +320,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
             rho = rho,
             key=k, 
             dt=hyperparams['dt'], 
-            num_steps=hyperparams['num_steps']))(jax.random.split(key, 10))
-        
-        
+            num_steps=hyperparams['num_steps']))(jax.random.split(key, 10))        
 
       
         if refine:
