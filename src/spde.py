@@ -6,10 +6,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-
+# define discrete Laplacian matrix
 def make_discrete_laplacian(size, dt):
     return (-jnp.eye(size)*2 + jnp.eye(size, k=1) + jnp.eye(size, k=-1))/(dt**2)
 
+# used for MH
 J = lambda xts, grad_V, dt: jnp.sum(-dt*jax.vmap(lambda xt: 0.25*grad_V(xt).dot(grad_V(xt)) - 0.5*jnp.trace(jax.jacfwd(lambda k: grad_V(k))(xt)) )(xts))
 
 def pi(xts, grad_V, s, hyperparams):
@@ -19,13 +20,14 @@ def pi(xts, grad_V, s, hyperparams):
     part2 = jnp.sum(0.25*dt*jax.vmap(lambda xt: xt @ A @ xt , in_axes=-1)(xts))
     return part1 + part2
 
+# main update function
+def step(xts, potential, s, ds, A, key, hyperparams, mh=False, prior= 'sde_prior'):
 
-def step(xts, potential, s, ds, A, key, hyperparams, mh=False, prior= 'brownian'):
-
-    grad_V = lambda x: jax.grad(potential)(x)
+    grad_V = lambda x: jax.grad(potential)(x)   # gradient of the prior potential
 
     u = lambda x: -grad_V(x)
 
+    # define the main quantities
     dt = hyperparams['dt']
     discrete_laplacian = make_discrete_laplacian(hyperparams['num_steps'], dt)
 
@@ -35,27 +37,29 @@ def step(xts, potential, s, ds, A, key, hyperparams, mh=False, prior= 'brownian'
     L_inv = jnp.linalg.inv(L)
 
     jacobian_u = jax.jacfwd(u)
-
     M_part_1 = -0.5*ds*jax.vmap(lambda k: jacobian_u(k) @ u(k))(xts)
     M_part_2 = -0.5*ds*jax.vmap(jax.grad(lambda k: jnp.trace(jacobian_u(k))))(xts)
 
     noise = jnp.sqrt(2 * (ds/dt))*jax.random.normal(key, shape=xts.shape)
 
+    # updated path
     xts_ds = L_inv @ (R @ xts + M_part_1 + M_part_2 + noise)
 
     
-
+    # impose the boundary condition
     if prior=='brownian':
         xts_ds = xts_ds.at[0].set(-1)
         xts_ds = xts_ds.at[-1].set(1)
     elif prior=='sde_prior':
         sigma = 0.1   
-        xts_ds = xts_ds.at[0].set(-1)
-        # jax.debug.print("xts_ds {x}", x=(xts_ds[-2], dt, s, (1/0.01**2) , (u(xts_ds[-2]) + ((2.*s)/(0.01**2) )*((1 - xts_ds[-2])) )))
-        xts_ds = xts_ds.at[-1].set(xts_ds[-2] + dt*(u(xts_ds[-2]) + ((2.*s)/(sigma**2) )*((1 - xts_ds[-2])) )) #todo: pass in sigma
+        # change the initial point to -2
+        xts_ds = xts_ds.at[0].set(-2)   
+        # change the traget point to +2
+        xts_ds = xts_ds.at[-1].set(xts_ds[-2] + dt*(u(xts_ds[-2]) + ((2.*s)/(sigma**2) )*((2.0 - xts_ds[-2])) )) 
         # xts_ds = xts_ds.at[-1].set(1)
         # xts_ds = xts_ds.at[-2].set(xts_ds[-2] + dt*(u(xts_ds[-1]) + ((2.*s)/(0.01**2) )*((1 - xts_ds[-1])) )) #todo: pass in sigma
 
+    # MH adjustment
     def q(xts, xts_prime):
         return (-(dt/(4*ds))*jnp.linalg.norm(L@xts_prime - R@xts + (M_part_1 + M_part_2))**2)
 
@@ -76,22 +80,19 @@ def step(xts, potential, s, ds, A, key, hyperparams, mh=False, prior= 'brownian'
 
     A = A - ds*J(xts_ds, grad_V, dt)
 
-
-
-
     return xts_ds, A
 
-def refine_spde(xts, V, s, A, num_steps, key, ds, hyperparams, mh, prior= 'brownian'):
+
+def refine_spde(xts, V, s, A, num_steps, key, ds, hyperparams, mh, prior= 'sde_prior'):
 
     # u = lambda x: -s*jax.grad(V)(x)
-
 
     for i in range(num_steps):
         key = jax.random.fold_in(key, i)
         xts, A = step(
             xts=xts,
             # u=u,
-            potential=V,
+            potential=V,   # prior potential
             A=A,
             s=s,
             key=key,
@@ -102,3 +103,4 @@ def refine_spde(xts, V, s, A, num_steps, key, ds, hyperparams, mh, prior= 'brown
         )
 
     return xts, A
+
