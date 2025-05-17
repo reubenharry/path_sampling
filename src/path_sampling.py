@@ -69,8 +69,8 @@ def div_f(x,time, f):
     return jax.vmap(lambda xt, t: jnp.trace(jax.jacobian(lambda k: f(k,t))(xt)))(x, time)
 
 
-def make_discrete_derivative(size, dt):
-    return (-jnp.eye(size) + jnp.eye(size, k=1))/(dt)
+# def make_discrete_derivative(size, dt):
+#     return (-jnp.eye(size) + jnp.eye(size, k=1))/(dt)
 
 
 def dfdt(x, dt):
@@ -162,7 +162,7 @@ def find_dbds(dbds, J, s, b, xs, times, ys, num_training_steps):
 
     expectation_of_J = E_J(J, xs, ys)
 
-    learning_rate = 1e-2
+    learning_rate = 1e-3
     optimizer = optax.adam(learning_rate)
     h_loss = make_h_loss(expectation_of_J, J, b, s)
     dbds = train(h_loss, dbds, optimizer, num_training_steps, xs, times, ys)
@@ -308,7 +308,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
 
     
 
-    new_b =  lambda x, t: (b(x,t) + dbds(x,t, 0.0)*ds)   # is it update correct?
+    new_b =  lambda x, t: (b(x,t) + dbds(x,t, 0.0)*ds)   # is this update correct?
 
     plot = True
     if plot:        
