@@ -6,6 +6,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+## this vesion works specifically for Brownian motion -> Brownian Bridge transport
+
+
 # define discrete Laplacian matrix
 def make_discrete_laplacian(size, dt):
     return (-jnp.eye(size)*2 + jnp.eye(size, k=1) + jnp.eye(size, k=-1))/(dt**2)
@@ -32,8 +35,8 @@ def step(xts, potential, s, ds, A, key, hyperparams, mh=False, prior= 'sde_prior
     discrete_laplacian = make_discrete_laplacian(hyperparams['num_steps'], dt)
 
     I = jnp.eye(hyperparams['num_steps'])
-    L = (I - 0.25*ds*discrete_laplacian)
-    R = (I + 0.25*ds*discrete_laplacian)
+    L = I 
+    R = (I + 0.5*ds*discrete_laplacian)
     L_inv = jnp.linalg.inv(L)
 
     jacobian_u = jax.jacfwd(u)
@@ -43,20 +46,23 @@ def step(xts, potential, s, ds, A, key, hyperparams, mh=False, prior= 'sde_prior
     noise = jnp.sqrt(2 * (ds/dt))*jax.random.normal(key, shape=xts.shape)
 
     # updated path
-    xts_ds = L_inv @ (R @ xts + M_part_1 + M_part_2 + noise)
-
+    #xts_ds = L_inv @ (R @ xts + M_part_1 + M_part_2 + noise)
+    sigma = 0.1  
+    likelihood = s/(sigma**2) *(2.0 - xts_ds[-2])
+    xts_ds = R @ xts + M_part_1 + M_part_2 + likelihood + noise
+    
     
     # impose the boundary condition
     if prior=='brownian':
         xts_ds = xts_ds.at[0].set(-1)
         xts_ds = xts_ds.at[-1].set(1)
     elif prior=='sde_prior':
-        sigma = 0.1   
+        #sigma = 0.1   
         # change the initial point to -2
         xts_ds = xts_ds.at[0].set(-2)   
         # change the traget point to +2
         #xts_ds = xts_ds.at[-1].set(xts_ds[-2] + dt*(u(xts_ds[-2]) + ((2.*s)/(sigma**2) )*((2.0 - xts_ds[-2])) )) 
-        xts_ds = xts_ds.at[-1].set(2)
+        xts_ds = xts_ds.at[-1].set(xts_ds[-2])  # last 2 points are the same
         # xts_ds = xts_ds.at[-2].set(xts_ds[-2] + dt*(u(xts_ds[-1]) + ((2.*s)/(0.01**2) )*((1 - xts_ds[-1])) )) #todo: pass in sigma
 
     # MH adjustment
