@@ -80,9 +80,8 @@ def dfdt(x, dt):
     Returns:
         an array of shape [num_steps, ndims] representing the derivative of x with respect to time
     """
-    #return jnp.concatenate([jnp.zeros((1, x.shape[1])) , x[1:, :] - x[:-1, :]], axis=0)/ dt
-    L = make_discrete_derivative(100, 0.01)  # this is hard-coded for now
-    return L @ x
+    # L = make_discrete_derivative(100, 0.01)  # this is hard-coded for now
+    return jnp.concatenate([jnp.zeros((1, x.shape[1])) , x[1:, :] - x[:-1, :]], axis=0)/ dt
 
 
 
