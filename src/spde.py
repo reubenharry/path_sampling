@@ -48,7 +48,7 @@ def step(xts, potential, s, ds, A, key, hyperparams, mh=False, prior= 'sde_prior
     # updated path
     #xts_ds = L_inv @ (R @ xts + M_part_1 + M_part_2 + noise)
     sigma = 0.1  
-    likelihood = s/(sigma**2) *(2.0 - xts_ds[-2])
+    likelihood = (s*ds)/(sigma**2) *(2.0 - xts_ds[-2])   # constraint on the second-to-last point
     xts_ds = R @ xts + M_part_1 + M_part_2 + likelihood + noise
     
     
