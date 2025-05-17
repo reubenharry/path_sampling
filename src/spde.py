@@ -55,8 +55,8 @@ def step(xts, potential, s, ds, A, key, hyperparams, mh=False, prior= 'sde_prior
         # change the initial point to -2
         xts_ds = xts_ds.at[0].set(-2)   
         # change the traget point to +2
-        xts_ds = xts_ds.at[-1].set(xts_ds[-2] + dt*(u(xts_ds[-2]) + ((2.*s)/(sigma**2) )*((2.0 - xts_ds[-2])) )) 
-        # xts_ds = xts_ds.at[-1].set(1)
+        #xts_ds = xts_ds.at[-1].set(xts_ds[-2] + dt*(u(xts_ds[-2]) + ((2.*s)/(sigma**2) )*((2.0 - xts_ds[-2])) )) 
+        xts_ds = xts_ds.at[-1].set(2)
         # xts_ds = xts_ds.at[-2].set(xts_ds[-2] + dt*(u(xts_ds[-1]) + ((2.*s)/(0.01**2) )*((1 - xts_ds[-1])) )) #todo: pass in sigma
 
     # MH adjustment
