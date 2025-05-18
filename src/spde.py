@@ -46,11 +46,12 @@ def step(xts, potential, s, ds, A_TH, key, hyperparams, mh=False, prior= 'sde_pr
     noise = jnp.sqrt(2 * (ds/dt))*jax.random.normal(key, shape=xts.shape)
 
     # updated path
-    #xts_ds = L_inv @ (R @ xts + M_part_1 + M_part_2 + noise)
     sigma = 0.1  
-    likelihood = ((s*ds)/(sigma**2)) *(2.0 - xts[-2])   # constraint on the second-to-last point
+    #likelihood = ((s*ds)/(sigma**2)) *(2.0 - xts[-2])   # constraint on the second-to-last point
+    #xts_ds = L_inv @ (R @ xts + likelihood + noise)
+    xts_ds = L_inv @ (R @ xts + noise)
     #xts_ds = R @ xts + M_part_1 + M_part_2 + likelihood + noise
-    xts_ds = R @ xts + likelihood + noise
+    #xts_ds = R @ xts + likelihood + noise
     
     
     # impose the boundary condition
@@ -62,10 +63,11 @@ def step(xts, potential, s, ds, A_TH, key, hyperparams, mh=False, prior= 'sde_pr
         # change the initial point to -2
         xts_ds = xts_ds.at[0].set(-2)   
         # change the traget point to +2
-        #xts_ds = xts_ds.at[-1].set(xts_ds[-2] + dt*(u(xts_ds[-2]) + ((2.*s)/(sigma**2) )*((2.0 - xts_ds[-2])) )) 
-        xts_ds = xts_ds.at[-1].set(xts_ds[-2])  # last 2 points are the same
+        xts_ds = xts_ds.at[-1].set(xts_ds[-2] + dt*(u(xts_ds[-2]) + ((2.*s)/(sigma**2) )*((2.0 - xts_ds[-2])) )) 
+        #xts_ds = xts_ds.at[-1].set(xts_ds[-2])  # last 2 points are the same
         # xts_ds = xts_ds.at[-2].set(xts_ds[-2] + dt*(u(xts_ds[-1]) + ((2.*s)/(0.01**2) )*((1 - xts_ds[-1])) )) #todo: pass in sigma
 
+    
     # MH adjustment
     def q(xts, xts_prime):
         return (-(dt/(4*ds))*jnp.linalg.norm(L@xts_prime - R@xts + (M_part_1 + M_part_2))**2)
