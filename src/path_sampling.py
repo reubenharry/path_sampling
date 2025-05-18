@@ -255,16 +255,16 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_
         xts=p,
         V=V,
         s=old_s,
-        ds=1e-3,
+        ds=1e-4,
         hyperparams=hyperparams,
         key=key,
-        num_steps=100,
+        num_steps=30,
         prior=prior,
         mh=False,
         A_TH=A_TH,
         ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)
-        # can you make it here so that we take the new_xs output by SPDE, delete the last time point, and copy the second-to-last to replace it?
-        xs = new_xs
+        # can you make it here so that we take the new_xs output by SPDE, delete the last time point, and copy the second-to-last to replace it? Reuben: I think this should work:
+        xs = new_xs.at[:, -1, :].set(new_xs[:, -2, :])
 
         if old_s==0:
             plot_path(xs[0], (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={old_s}, after spde', i=i)
@@ -330,16 +330,18 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_
                 xts=paths[0],
                 V=V,
                 s=new_s,
-                ds=1e-3,
+                ds=1e-4,
                 hyperparams=hyperparams,
                 key=key,
-                num_steps=100,
+                num_steps=30,
                 A_TH=A_TH,
                 prior=prior,
                 mh=False,
                 )
+            
             # refined_path = paths[0]
             # similar here: can you make it here so that we take the refined_path output by SPDE, delete the last time point, and copy the second-to-last to replace it?
+            refined_path = refined_path.at[ -1, :].set(refined_path[-2, :])
             plot_path(refined_path, (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={new_s}, after spde', i=i)
 
         # for path in paths:
