@@ -24,7 +24,7 @@ def pi(xts, grad_V, s, hyperparams):
     return part1 + part2
 
 # main update function
-def step(xts, potential, s, ds, A, key, hyperparams, mh=False, prior= 'sde_prior'):
+def step(xts, potential, s, ds, A_TH, key, hyperparams, mh=False, prior= 'sde_prior'):
 
     grad_V = lambda x: jax.grad(potential)(x)   # gradient of the prior potential
 
@@ -85,22 +85,22 @@ def step(xts, potential, s, ds, A, key, hyperparams, mh=False, prior= 'sde_prior
         xts_ds = xts_ds*accept + xts*(1-accept)
 
 
-    A = A - ds*J(xts_ds, grad_V, dt)
+    A_TH = A_TH - ds*J(xts_ds, grad_V, dt)
 
-    return xts_ds, A
+    return xts_ds, A_TH
 
 
-def refine_spde(xts, V, s, A, num_steps, key, ds, hyperparams, mh, prior= 'sde_prior'):
+def refine_spde(xts, V, s, A_TH, num_steps, key, ds, hyperparams, mh, prior= 'sde_prior'):
 
     # u = lambda x: -s*jax.grad(V)(x)
 
     for i in range(num_steps):
         key = jax.random.fold_in(key, i)
-        xts, A = step(
+        xts, A_TH = step(
             xts=xts,
             # u=u,
             potential=V,   # prior potential
-            A=A,
+            A_TH=A_TH,
             s=s,
             key=key,
             ds=ds,
@@ -109,5 +109,5 @@ def refine_spde(xts, V, s, A, num_steps, key, ds, hyperparams, mh, prior= 'sde_p
             prior=prior
         )
 
-    return xts, A
+    return xts, A_TH
 

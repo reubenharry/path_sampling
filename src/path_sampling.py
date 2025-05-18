@@ -212,7 +212,7 @@ def plot_path(path, time, potential, label, i):
 
 
 
-def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A, rho = lambda key: jnp.zeros((1,))-1., refine=False, ndims=1):
+def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_TH, rho = lambda key: jnp.zeros((1,))-1., refine=False, ndims=1):
     """
     b: drift term. A function from R^ndims x R -> R^ndims
     hyperparams: dictionary of hyperparameters
@@ -260,7 +260,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
         num_steps=30,
         prior=prior,
         mh=False,
-        A=A,
+        A_TH=A_TH,
         ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)
         xs = new_xs
 
@@ -301,7 +301,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
     #     num_steps=30,
     #     prior=prior,
     #     mh=False,
-    #     A=A,
+    #     A_TH=A_TH,
     #     ))(jax.random.split(refine_key, hyperparams['batch_size']), test_xs)
 
     # print(f"Test loss is {make_h_loss(expectation_of_J=expectation_of_J, J=J, b=b, s=new_s)(dbds, test_xs, test_times, None)}")
@@ -332,7 +332,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
                 hyperparams=hyperparams,
                 key=key,
                 num_steps=30,
-                A=A,
+                A_TH=A_TH,
                 prior=prior,
                 mh=False,
                 )
@@ -342,4 +342,4 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A,
         plot_path(paths[0], (times[0]/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={new_s}, before spde', i=i)
         plt.legend()
 
-    return new_b, A - ds*expectation_of_J
+    return new_b, A_TH - ds*expectation_of_J
