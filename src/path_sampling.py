@@ -190,9 +190,9 @@ def plot_path(path, time, potential, label, i):
     if path.shape[1] != 2:
 
         plt.plot(path, time, label=label)
-        x = jnp.expand_dims(jnp.linspace(-2, 2, 100), 1)
-        y = potential(x)
-        if i==0: plt.plot(x, y)
+        # x = jnp.expand_dims(jnp.linspace(-2, 2, 100), 1)
+        # y = potential(x)
+        # if i==0: plt.plot(x, y)
 
     else:
 
@@ -247,6 +247,8 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_
 
     
     print("s: ", old_s)
+    # print("prior: ", prior)
+    # print(V(5.0), "potential at 5.")
 
     # path refinement
     if refine:      
@@ -254,10 +256,10 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_
         xts=p,
         V=V,
         s=old_s,
-        ds=0.001,
+        ds=1e-4,
         hyperparams=hyperparams,
         key=key,
-        num_steps=30,
+        num_steps=1,
         prior=prior,
         mh=False,
         A_TH=A_TH,
@@ -328,7 +330,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_
                 xts=paths[0],
                 V=V,
                 s=new_s,
-                ds=0.001,
+                ds=1e-4,
                 hyperparams=hyperparams,
                 key=key,
                 num_steps=30,
@@ -336,6 +338,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_
                 prior=prior,
                 mh=False,
                 )
+            # refined_path = paths[0]
             plot_path(refined_path, (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={new_s}, after spde', i=i)
 
         # for path in paths:
