@@ -243,7 +243,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_
     time = np.arange(0,hyperparams['num_steps'])*hyperparams['dt']
 
     if old_s==0.0:
-        plot_path(xs[0], (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={old_s}, before spde', i=i)
+        plot_path(xs[0], (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={old_s}', i=i)
 
     
     print("s: ", old_s)
@@ -345,7 +345,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_
             plot_path(refined_path, (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={new_s}, after spde', i=i)
 
         # for path in paths:
-        plot_path(paths[0], (times[0]/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={new_s}, before spde', i=i)
+        plot_path(paths[0], (times[0]/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={new_s}', i=i)
         plt.legend()
 
     return new_b, A_TH - ds*expectation_of_J
