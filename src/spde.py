@@ -35,8 +35,8 @@ def step(xts, potential, s, ds, A_TH, key, hyperparams, mh=False, prior= 'sde_pr
     discrete_laplacian = make_discrete_laplacian(hyperparams['num_steps'], dt)
 
     I = jnp.eye(hyperparams['num_steps'])
-    L = I 
-    R = (I + 0.5*ds*discrete_laplacian)
+    L = (I - 0.25*ds*discrete_laplacian)
+    R = (I + 0.25*ds*discrete_laplacian)
     L_inv = jnp.linalg.inv(L)
 
     jacobian_u = jax.jacfwd(u)
@@ -49,9 +49,8 @@ def step(xts, potential, s, ds, A_TH, key, hyperparams, mh=False, prior= 'sde_pr
     sigma = 0.1  
     #likelihood = ((s*ds)/(sigma**2)) *(2.0 - xts[-2])   # constraint on the second-to-last point
     #xts_ds = L_inv @ (R @ xts + likelihood + noise)
-    xts_ds = L_inv @ (R @ xts + noise)
+    xts_ds = L_inv @ (R @ xts + M_part_1 + M_part_2+ noise)
     #xts_ds = R @ xts + M_part_1 + M_part_2 + likelihood + noise
-    #xts_ds = R @ xts + likelihood + noise
     
     
     # impose the boundary condition
@@ -61,11 +60,11 @@ def step(xts, potential, s, ds, A_TH, key, hyperparams, mh=False, prior= 'sde_pr
     elif prior=='sde_prior':
         #sigma = 0.1   
         # change the initial point to -2
-        xts_ds = xts_ds.at[0].set(-2)   
+        xts_ds = xts_ds.at[0].set(-1)   
         # change the traget point to +2
-        xts_ds = xts_ds.at[-1].set(xts_ds[-2] + dt*(u(xts_ds[-2]) + ((2.*s)/(sigma**2) )*((2.0 - xts_ds[-2])) )) 
+        xts_ds = xts_ds.at[-1].set(xts_ds[-2] + dt*(u(xts_ds[-2]) + ((2.*s)/(sigma**2) )*((1.0 - xts_ds[-2])) )) 
         #xts_ds = xts_ds.at[-1].set(xts_ds[-2])  # last 2 points are the same
-        # xts_ds = xts_ds.at[-2].set(xts_ds[-2] + dt*(u(xts_ds[-1]) + ((2.*s)/(0.01**2) )*((1 - xts_ds[-1])) )) #todo: pass in sigma
+        
 
     
     # MH adjustment
@@ -100,7 +99,6 @@ def refine_spde(xts, V, s, A_TH, num_steps, key, ds, hyperparams, mh, prior= 'sd
         key = jax.random.fold_in(key, i)
         xts, A_TH = step(
             xts=xts,
-            # u=u,
             potential=V,   # prior potential
             A_TH=A_TH,
             s=s,
