@@ -197,7 +197,7 @@ def plot_path(path, time, potential, label, i):
     else:
 
         # plot path in 2D
-        plt.plot(path[:, 0], path[:, 1], label=label)
+        plt.plot(path[:, 0], path[:, 1], label=label, alpha=0.5)
         plt.legend()
         
         
@@ -243,7 +243,7 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_
     time = np.arange(0,hyperparams['num_steps'])*hyperparams['dt']
 
     if old_s==0.0:
-        plot_path(xs[0], (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={old_s}', i=i)
+        plot_path(xs[0], (time), make_double_well_potential(v=5.0), label=f'path from b at s={old_s}', i=i)
 
     
     print("s: ", old_s)
@@ -266,8 +266,10 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_
         # can you make it here so that we take the new_xs output by SPDE, delete the last time point, and copy the second-to-last to replace it? Reuben: I think this should work:
         xs = new_xs.at[:, -1, :].set(new_xs[:, -2, :])
 
+
+
         if old_s==0:
-            plot_path(xs[0], (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={old_s}, after spde', i=i)
+            plot_path(xs[0], (time), make_double_well_potential(v=5.0), label=f'path from b at s={old_s}, after spde', i=i)
         
     expectation_of_J = E_J(J, xs, None)
 
@@ -339,13 +341,14 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_
                 mh=False,
                 )
             
+            
             # refined_path = paths[0]
             # similar here: can you make it here so that we take the refined_path output by SPDE, delete the last time point, and copy the second-to-last to replace it?
             refined_path = refined_path.at[ -1, :].set(refined_path[-2, :])
-            plot_path(refined_path, (time/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={new_s}, after spde', i=i)
+            plot_path(refined_path, (time), make_double_well_potential(v=5.0), label=f'path from b at s={new_s}, after spde', i=i)
 
         # for path in paths:
-        plot_path(paths[0], (times[0]/hyperparams['dt'])/2.5, make_double_well_potential(v=5.0), label=f'path from b at s={new_s}', i=i)
+        plot_path(paths[0], (times[0]), make_double_well_potential(v=5.0), label=f'path from b at s={new_s}', i=i)
         plt.legend()
 
     return new_b, A_TH - ds*expectation_of_J
