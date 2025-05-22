@@ -271,7 +271,6 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_
         mh=False,
         A_TH=A_TH,
         ))(jax.random.split(refine_key, hyperparams['batch_size']), xs)
-        # can you make it here so that we take the new_xs output by SPDE, delete the last time point, and copy the second-to-last to replace it? Reuben: I think this should work:
         xs = new_xs.at[:, -1, :].set(new_xs[:, -2, :])
 
 
