@@ -1,0 +1,1 @@
+The notebooks in the `notebooks` directory contain the code to reproduce the figures for the paper. The core of algorithm 1 is in `src/path_sampling.py`, the neural net code is in `src/nn.py`, and the MCMC code is in `src/spde.py` (a more naive, deprecated, version is in `src/mclmc.py`).

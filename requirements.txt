@@ -5,3 +5,5 @@ optax
 numpy
 scipy
 matplotlib
+seaborn
+pandas
