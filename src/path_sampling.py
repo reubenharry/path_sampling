@@ -185,11 +185,15 @@ from path_sampling import E_J, find_dbds, make_h_loss
 import numpy as np
 
 
-def plot_path(path, time, potential, label, i):
+def plot_path(path, time, potential, label, i, plotted_times=[]):
 
+    print("i: ", i)
     if path.shape[1] != 2:
 
-        plt.plot(path, time, label=label)
+        if i in plotted_times:
+                plt.plot(path, time, label=label)
+        # else:
+        #     plt.plot(path, time, label=label)
         # x = jnp.expand_dims(jnp.linspace(-2, 2, 100), 1)
         # y = potential(x)
         # if i==0: plt.plot(x, y)
@@ -197,8 +201,13 @@ def plot_path(path, time, potential, label, i):
     else:
 
         # plot path in 2D
-        plt.plot(path[:, 0], path[:, 1], label=label, alpha=0.5)
-        plt.legend()
+        # print(i, plotted_times)
+        # if plotted_times:
+        #     if i in plotted_times:
+        #         plt.plot(path[:, 0], path[:, 1], label=label, alpha=0.5)
+        # else:
+        #     plt.plot(path[:, 0], path[:, 1], label=label, alpha=0.5)
+        # plt.legend()
         
         
         # plot heatmap of the potential make_double_well_potential
@@ -212,7 +221,7 @@ def plot_path(path, time, potential, label, i):
 
 
 
-def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_TH, rho = lambda key: jnp.zeros((1,))-1., refine=False, ndims=1):
+def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_TH, rho = lambda key: jnp.zeros((1,))-1., refine=False, ndims=1, plotted_times=None):
     """
     b: drift term. A function from R^ndims x R -> R^ndims
     hyperparams: dictionary of hyperparameters
@@ -242,12 +251,11 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_
 
     time = np.arange(0,hyperparams['num_steps'])*hyperparams['dt']
 
-    if old_s==0.0:
-        plot_path(xs[0], (time), make_double_well_potential(v=5.0), label=f'path from b at s={old_s}', i=i)
+    # if old_s==0.0:
+    #     plot_path(xs[0], (time), make_double_well_potential(v=5.0), label=f'path from b at s={old_s}', i=i, plotted_times=plotted_times)
 
     
     print("s: ", old_s)
-    # print("prior: ", prior)
 
     # path refinement
     if refine:      
@@ -268,8 +276,8 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_
 
 
 
-        if old_s==0:
-            plot_path(xs[0], (time), make_double_well_potential(v=5.0), label=f'path from b at s={old_s}, after spde', i=i)
+        # if old_s==0:
+        #     plot_path(xs[0], (time), make_double_well_potential(v=5.0), label=f'path from b at s={old_s}, after spde', i=i)
         
     expectation_of_J = E_J(J, xs, None)
 
@@ -283,33 +291,6 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_
         ys=None,
         num_training_steps=hyperparams['num_training_steps']
         )
-    
-    ### calculate test loss
-    # test_xs, test_times = jax.pmap(lambda key:sample_sde(
-    #     b=b, 
-    #     W = W,
-    #     rho = rho,
-    #     key=key, 
-    #     dt=hyperparams['dt'], 
-    #     num_steps=hyperparams['num_steps']))(jax.random.split(jax.random.key(500), hyperparams['batch_size']))
-
-    # if refine:
-        
-    #     test_xs, _ = jax.pmap(lambda key, p: refine_spde(
-    #     xts=p,
-    #     V=V,
-    #     s=old_s,
-    #     ds=1e-3,
-    #     hyperparams=hyperparams,
-    #     key=key,
-    #     num_steps=30,
-    #     prior=prior,
-    #     mh=False,
-    #     A_TH=A_TH,
-    #     ))(jax.random.split(refine_key, hyperparams['batch_size']), test_xs)
-
-    # print(f"Test loss is {make_h_loss(expectation_of_J=expectation_of_J, J=J, b=b, s=new_s)(dbds, test_xs, test_times, None)}")
-
     
 
     new_b =  lambda x, t: (b(x,t) + dbds(x,t, 0.0)*ds)   
@@ -345,10 +326,10 @@ def update_non_amortized(V, b, J, prior, dbds, hyperparams, key, schedule, i, A_
             # refined_path = paths[0]
             # similar here: can you make it here so that we take the refined_path output by SPDE, delete the last time point, and copy the second-to-last to replace it?
             refined_path = refined_path.at[ -1, :].set(refined_path[-2, :])
-            plot_path(refined_path, (time), make_double_well_potential(v=5.0), label=f'path from b at s={new_s}, after spde', i=i)
+            # plot_path(refined_path, (time), make_double_well_potential(v=5.0), label=f'path from b at s={new_s}, after spde', i=i)
 
         # for path in paths:
-        plot_path(paths[0], (times[0]), make_double_well_potential(v=5.0), label=f'path from b at s={new_s}', i=i)
+        plot_path(paths[0], (times[0]), make_double_well_potential(v=5.0), label=f'path from b at s={new_s}', i=i, plotted_times=plotted_times)
         plt.legend()
 
     return new_b, A_TH - ds*expectation_of_J
